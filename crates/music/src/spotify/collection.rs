@@ -6,7 +6,6 @@ use librespot_core::Session;
 use librespot_protocol::entity_extension_data::EntityExtensionData;
 use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest, ExtensionQuery};
 use librespot_protocol::extension_kind::ExtensionKind;
-use librespot_protocol::metadata::image::Size as ImageSize;
 use librespot_protocol::metadata::{
     Album as AlbumMessage, Artist as ArtistMessage, Episode as EpisodeMessage, ImageGroup,
     Track as TrackMessage,
@@ -233,10 +232,10 @@ fn episode_from(uri: &str, episode: &EpisodeMessage) -> Track {
         cover: episode
             .cover_image
             .as_ref()
-            .and_then(image_url)
+            .and_then(|group| image_url(group, true))
             .or_else(|| {
                 show.and_then(|show| show.cover_image.as_ref())
-                    .and_then(image_url)
+                    .and_then(|group| image_url(group, true))
             }),
         duration: Duration::from_millis(episode.duration().max(0) as u64),
         explicit: episode.explicit(),
@@ -245,21 +244,20 @@ fn episode_from(uri: &str, episode: &EpisodeMessage) -> Track {
 }
 
 fn cover_url(album: &AlbumMessage) -> Option<String> {
-    image_url(album.cover_group.as_ref()?)
+    image_url(album.cover_group.as_ref()?, false)
 }
 
-/// Uses the smallest cover for list rows; larger variants are resolved by the provider.
-fn image_url(group: &ImageGroup) -> Option<String> {
-    let smallest = group
+/// Uses a thumbnail for albums, whose covers can be upgraded later. Episodes need the largest
+/// listed image because they have no album from which fullscreen can load a better cover.
+fn image_url(group: &ImageGroup, largest: bool) -> Option<String> {
+    let image = group
         .image
         .iter()
         .filter(|image| image.has_file_id())
-        .min_by_key(|image| match image.size() {
-            ImageSize::SMALL => 0,
-            ImageSize::DEFAULT => 1,
-            ImageSize::LARGE => 2,
-            ImageSize::XLARGE => 3,
+        .min_by_key(|image| match largest {
+            true => -wire::image_width(image),
+            false => wire::image_width(image),
         })?;
 
-    wire::image_url(smallest.file_id())
+    wire::image_url(image.file_id())
 }

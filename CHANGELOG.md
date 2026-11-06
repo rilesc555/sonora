@@ -38,6 +38,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Show Spotify episode covers at their largest available size instead of enlarging thumbnails.
 - Omit empty Spotify episode entries instead of showing blank rows with a zero length.
 - On macOS, scrolling and clicks no longer lag behind in fullscreen and with lyrics open.
 - Horizontal card rows scroll all the way to the page edges, including album recommendations.
