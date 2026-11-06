@@ -461,6 +461,9 @@ impl TrackSource {
     }
 
     fn liked_button(&self, cell: &Cell<TrackField>, track: &Track, cx: &App) -> Option<AnyElement> {
+        if track.is_episode() {
+            return None;
+        }
         let library = self.is_liked.as_ref()?;
         // on a saved shelf every listed track is a favorite, so the heart would say nothing
         if self.starrable.is_some() && !self.catalog(cx) {

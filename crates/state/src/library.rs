@@ -831,6 +831,9 @@ impl Savable for Track {
     }
 
     fn id(&self) -> Option<&str> {
+        if self.is_episode() {
+            return None;
+        }
         self.id.as_deref()
     }
 

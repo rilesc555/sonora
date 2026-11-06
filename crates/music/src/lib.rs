@@ -65,6 +65,8 @@ pub const LOCAL_TRACK_PREFIX: &str = "local:";
 pub const LOCAL_ALBUM_PREFIX: &str = "local-album:";
 pub const LOCAL_ARTIST_PREFIX: &str = "local-artist:";
 pub const LOCAL_PLAYLIST_PREFIX: &str = "local-playlist:";
+/// Reserves a distinct identity for episodes in queues, history, and provider requests.
+pub const EPISODE_PREFIX: &str = "episode:";
 
 /// The most recommendations a provider hands one list of an album or artist page, so a
 /// rail never asks for or draws more than this many releases or artists.

@@ -205,6 +205,11 @@ impl PlayerBar {
 
     fn side_buttons(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let theme = *cx.theme();
+        let episode = self
+            .playback
+            .read(cx)
+            .shown_track(cx)
+            .is_some_and(|track| track.is_episode());
         let (open, tab) = {
             let settings = self.settings.read(cx);
             (settings.sidebar_right_open(), settings.sidebar_right_tab())
@@ -214,6 +219,7 @@ impl PlayerBar {
             let showing = open && tab == side;
 
             Button::new(id)
+                .when(episode && side == SideTab::Lyrics, |button| button.hidden())
                 .ghost()
                 .small()
                 .icon(icon)

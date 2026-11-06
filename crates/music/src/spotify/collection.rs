@@ -8,12 +8,13 @@ use librespot_protocol::extended_metadata::{BatchedEntityRequest, EntityRequest,
 use librespot_protocol::extension_kind::ExtensionKind;
 use librespot_protocol::metadata::image::Size as ImageSize;
 use librespot_protocol::metadata::{
-    Album as AlbumMessage, Artist as ArtistMessage, Track as TrackMessage,
+    Album as AlbumMessage, Artist as ArtistMessage, Episode as EpisodeMessage, ImageGroup,
+    Track as TrackMessage,
 };
 use protobuf::{EnumOrUnknown, Message as _};
 
 use crate::spotify::pace::paced;
-use crate::spotify::{collection2, wire};
+use crate::spotify::{collection2, identity, wire};
 use crate::{ArtistRef, Credit, Track};
 
 const TRACK_PREFIX: &str = "spotify:track:";
@@ -39,7 +40,7 @@ pub async fn saved_tracks(session: &Session) -> Result<Vec<Track>> {
 }
 
 pub async fn track(session: &Session, track_id: &str) -> Result<Track> {
-    let uri = format!("{TRACK_PREFIX}{track_id}");
+    let uri = identity::to_uri(track_id);
     metadata(session, std::slice::from_ref(&uri))
         .await?
         .remove(&uri)
@@ -47,7 +48,11 @@ pub async fn track(session: &Session, track_id: &str) -> Result<Track> {
 }
 
 pub(crate) async fn metadata(session: &Session, uris: &[String]) -> Result<HashMap<String, Track>> {
-    let entities = extended(session, uris, ExtensionKind::TRACK_V4)
+    let (episodes, songs): (Vec<String>, Vec<String>) = uris
+        .iter()
+        .cloned()
+        .partition(|uri| uri.starts_with("spotify:episode:"));
+    let entities = extended(session, &songs, ExtensionKind::TRACK_V4)
         .await
         .context("cannot read track metadata")?;
 
@@ -58,6 +63,25 @@ pub(crate) async fn metadata(session: &Session, uris: &[String]) -> Result<HashM
         };
         let track = track_from(&entity.entity_uri, &message);
         tracks.insert(entity.entity_uri, track);
+    }
+    let entities = extended(session, &episodes, ExtensionKind::EPISODE_V4)
+        .await
+        .inspect_err(|error| log::warn!("spotify: cannot read episode metadata: {error:#}"))
+        .unwrap_or_default();
+    for entity in entities {
+        let Ok(message) = EpisodeMessage::parse_from_bytes(&entity.extension_data.value) else {
+            continue;
+        };
+        let track = episode_from(&entity.entity_uri, &message);
+        tracks.insert(entity.entity_uri, track);
+    }
+    // Keep unavailable episodes in their playlist position instead of silently removing them.
+    for uri in episodes {
+        tracks.entry(uri.clone()).or_insert_with(|| Track {
+            id: identity::from_uri(&uri),
+            name: uri,
+            ..Default::default()
+        });
     }
     Ok(tracks)
 }
@@ -202,10 +226,35 @@ fn non_empty(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
+/// Maps episode audio onto the existing row, without creating artist or album routes for a show.
+fn episode_from(uri: &str, episode: &EpisodeMessage) -> Track {
+    let show = episode.show.as_ref();
+    Track {
+        id: identity::from_uri(uri),
+        name: episode.name().to_owned(),
+        playable: !episode.audio.is_empty(),
+        artists: show.map(|show| show.name().to_owned()).unwrap_or_default(),
+        cover: episode
+            .cover_image
+            .as_ref()
+            .and_then(image_url)
+            .or_else(|| {
+                show.and_then(|show| show.cover_image.as_ref())
+                    .and_then(image_url)
+            }),
+        duration: Duration::from_millis(episode.duration().max(0) as u64),
+        explicit: episode.explicit(),
+        ..Default::default()
+    }
+}
+
 fn cover_url(album: &AlbumMessage) -> Option<String> {
-    let smallest = album
-        .cover_group
-        .as_ref()?
+    image_url(album.cover_group.as_ref()?)
+}
+
+/// Uses the smallest cover for list rows; larger variants are resolved by the provider.
+fn image_url(group: &ImageGroup) -> Option<String> {
+    let smallest = group
         .image
         .iter()
         .filter(|image| image.has_file_id())

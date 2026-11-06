@@ -92,6 +92,15 @@ pub struct Track {
     pub credits: Vec<Credit>,
 }
 
+impl Track {
+    /// Episodes use a reserved id prefix so their kind survives queue and history storage.
+    pub fn is_episode(&self) -> bool {
+        self.id
+            .as_deref()
+            .is_some_and(|id| id.starts_with(crate::EPISODE_PREFIX))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Playlist {

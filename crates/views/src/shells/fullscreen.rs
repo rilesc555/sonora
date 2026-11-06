@@ -953,6 +953,11 @@ impl FullscreenView {
 
     fn pill(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = *cx.theme();
+        let episode = self
+            .playback
+            .read(cx)
+            .shown_track(cx)
+            .is_some_and(|track| track.is_episode());
         let frosted = ambient::shown(cx);
         let gap = px(PILL_GAP);
         let linger = cx.listener(|this: &mut Self, hovering: &bool, _, cx| {
@@ -966,6 +971,9 @@ impl FullscreenView {
             let showing = self.panel == panel;
 
             Button::new(id)
+                .when(episode && panel == Some(SideTab::Lyrics), |button| {
+                    button.hidden()
+                })
                 .ghost()
                 .when(frosted, Button::frosted)
                 .small()

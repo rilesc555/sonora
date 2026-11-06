@@ -21,10 +21,9 @@ use tokio::task::JoinSet;
 
 use crate::cover::{self, CoverLimits};
 use crate::spotify::pace::{self, paced};
-use crate::spotify::{collection, profiles, wire};
+use crate::spotify::{collection, identity, profiles, wire};
 use crate::{Contributor, GenreItem, GenreSection, Playlist, PlaylistDetail, Track, escape};
 
-const TRACK_PREFIX: &str = "spotify:track:";
 const PLAYLIST_PREFIX: &str = "spotify:playlist:";
 const ROOTLIST_LIMIT: usize = 10000;
 const COVER_SLACK: usize = 4;
@@ -203,7 +202,7 @@ pub async fn set_public(session: &Session, playlist_id: &str, public: bool) -> R
 }
 
 pub async fn add_track(session: &Session, playlist_id: &str, track_id: &str) -> Result<()> {
-    let uri = format!("{TRACK_PREFIX}{track_id}");
+    let uri = identity::to_uri(track_id);
     let content = snapshot(session, playlist_id).await?;
     let body = changes(content.revision.as_deref(), add_op(&uri));
 
@@ -214,7 +213,7 @@ pub async fn add_track(session: &Session, playlist_id: &str, track_id: &str) -> 
 }
 
 pub async fn remove_track(session: &Session, playlist_id: &str, track_id: &str) -> Result<()> {
-    let uri = format!("{TRACK_PREFIX}{track_id}");
+    let uri = identity::to_uri(track_id);
     let content = snapshot(session, playlist_id).await?;
     let index =
         position(&content, &uri).ok_or_else(|| anyhow!("cannot find the track in the playlist"))?;
@@ -334,7 +333,7 @@ pub async fn covers(session: &Session, playlist_id: &str, wanted: usize) -> Resu
         .items
         .iter()
         .map(|item| item.uri())
-        .filter(|uri| uri.starts_with(TRACK_PREFIX))
+        .filter(|uri| identity::is_audio(uri))
         .take(wanted * COVER_SLACK)
         .map(str::to_owned)
         .collect();
@@ -356,7 +355,7 @@ async fn tracks_from(session: &Session, content: &SelectedListContent) -> Result
         .contents
         .items
         .iter()
-        .filter(|item| item.uri().starts_with(TRACK_PREFIX))
+        .filter(|item| identity::is_audio(item.uri()))
         .map(|item| {
             (
                 item.uri().to_owned(),

@@ -1050,6 +1050,11 @@ impl Playback {
         if !seed.playable {
             return self.failed(format!("{} is not available to stream", seed.name), cx);
         }
+        if seed.is_episode() {
+            self.fetch = None;
+            self.begin(vec![seed.clone()], 0, None, cx);
+            return;
+        }
 
         let origin = Origin::radio(id.clone()).named(seed.name.clone());
         let Some(client) = self.client_for(&id, cx) else {
@@ -1303,6 +1308,9 @@ impl Playback {
     /// keep a queue going, so the radio paths leave it alone rather than asking and getting
     /// nothing back.
     fn stations(&self, id: &str, cx: &Context<Self>) -> bool {
+        if id.starts_with(music::EPISODE_PREFIX) {
+            return false;
+        }
         self.session
             .read(cx)
             .capabilities_of(crate::Shelf::of(id))

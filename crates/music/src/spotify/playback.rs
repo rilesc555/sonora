@@ -17,6 +17,7 @@ use crate::audio::{Chain, Volume};
 
 use crate::sink::Cue;
 use crate::spectrum::Spectrum;
+use crate::spotify::identity;
 use crate::spotify::offline::{self, Kept};
 use crate::spotify::sink::OutputSink;
 use crate::vault::Shelf;
@@ -25,7 +26,6 @@ use crate::{
     PlaybackFactory, Player as MusicPlayer, Quality, TrackSignal,
 };
 
-const TRACK_PREFIX: &str = "spotify:track:";
 /// The levels Spotify serves, best first: Ogg Vorbis at 320, 160 and 96 kbps.
 /// The pause between Spotify downloads once Spotify has refused one. It refuses audio keys asked
 /// for in a burst, the same keys playback needs, so after a refusal downloads ask about as often as
@@ -269,11 +269,15 @@ impl Engine {
         self.spectrum.clone()
     }
 
-    /// Reports what every Spotify track is: Ogg Vorbis at the offer asked for, decoded by
-    /// librespot to 44.1 kHz stereo and normalised there.
+    /// Reports librespot's decoded output and configured normalisation. Episode encodings are
+    /// not inferred from the music quality setting.
     fn learn(&self, track_id: &str) {
+        let episode = track_id.starts_with(crate::EPISODE_PREFIX);
         let track = TrackSignal {
-            encoding: self.encoding,
+            encoding: match episode {
+                true => None,
+                false => self.encoding,
+            },
             rate: SAMPLE_RATE,
             channels: NUM_CHANNELS.into(),
             normalisation: match self.normalisation {
@@ -288,6 +292,9 @@ impl Engine {
 
 impl MusicPlayer for Engine {
     fn download(&self, track_id: &str, progress: Fraction) -> BoxFuture<'static, Result<()>> {
+        if track_id.starts_with(crate::EPISODE_PREFIX) {
+            return Box::pin(async { Err(anyhow!("episode downloads are not supported")) });
+        }
         let Some(shelf) = self.shelf.clone() else {
             return Box::pin(async { Err(anyhow!("spotify keeps no downloads here")) });
         };
@@ -384,7 +391,7 @@ fn forward(mut events: UnboundedReceiver<PlayerEvent>, cue: Cue) -> UnboundedRec
 }
 
 pub(crate) fn track_uri(track_id: &str) -> Result<SpotifyUri> {
-    SpotifyUri::from_uri(&format!("{TRACK_PREFIX}{track_id}"))
+    SpotifyUri::from_uri(&identity::to_uri(track_id))
         .with_context(|| format!("{track_id} is not a track id"))
 }
 
@@ -393,7 +400,7 @@ pub(crate) fn track_uri(track_id: &str) -> Result<SpotifyUri> {
 /// track.
 fn translate(event: PlayerEvent) -> Option<PlaybackEvent> {
     let millis = |position_ms: u32| Duration::from_millis(position_ms as u64);
-    let track_id = |uri: SpotifyUri| Some(uri.to_id());
+    let track_id = |uri: SpotifyUri| identity::from_uri(&uri.to_uri());
 
     match event {
         PlayerEvent::Loading {

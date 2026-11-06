@@ -165,6 +165,9 @@ impl Lyrics {
         let Some(track) = shown.as_ref() else {
             return self.forget(cx);
         };
+        if track.is_episode() {
+            return self.forget(cx);
+        }
         let Some(id) = track.id.as_deref() else {
             return self.forget(cx);
         };
@@ -341,6 +344,9 @@ impl Lyrics {
         let Some(track) = queue.track(QueuePosition::Upcoming(0), cx) else {
             return;
         };
+        if track.is_episode() {
+            return;
+        }
         let Some(id) = track.id.as_deref() else {
             return;
         };
