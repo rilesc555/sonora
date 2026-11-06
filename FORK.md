@@ -14,6 +14,9 @@ and merges `sonorahq/sonora`'s `main`. Do not reset it to upstream or force-sync
   dispatches a new package run on `main`. Ordinary pushes to `main` also start the package run.
 - Only a passing build of `main` is signed and published. Pull requests have no signing key.
   A failed build, conflict, or deployment leaves the last published repository in place.
+- The build uses both `rust-cache` for Cargo dependencies and `sccache` with GitHub's cache
+  backend for compiler results. Cache statistics are printed even when a build fails. Test
+  and release profiles keep separate compiler results; the final executable link is not cached.
 - Packages and the pacman database are signed with the dedicated fork key. The package is
   `sonora-rilesc555-bin`, provides `sonora`, and conflicts with the upstream packages. It keeps
   `/usr/bin/sonora`, the Sonora launcher, and the existing user data paths.

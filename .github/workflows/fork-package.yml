@@ -30,6 +30,9 @@ jobs:
   build:
     if: github.repository == 'rilesc555/sonora'
     runs-on: ubuntu-22.04
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
     permissions:
       contents: read
       pull-requests: read
@@ -85,6 +88,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
       - uses: Swatinem/rust-cache@v2
         with:
           key: fork-linux
@@ -103,6 +107,9 @@ jobs:
           name: fork-build-${{ github.run_id }}
           path: staging/*
           retention-days: 7
+      - name: compiler cache statistics
+        if: always()
+        run: sccache --show-stats
 
   merge:
     needs: build
