@@ -66,22 +66,18 @@ pub(crate) async fn metadata(session: &Session, uris: &[String]) -> Result<HashM
     }
     let entities = extended(session, &episodes, ExtensionKind::EPISODE_V4)
         .await
-        .inspect_err(|error| log::warn!("spotify: cannot read episode metadata: {error:#}"))
-        .unwrap_or_default();
+        .context("cannot read episode metadata")?;
     for entity in entities {
         let Ok(message) = EpisodeMessage::parse_from_bytes(&entity.extension_data.value) else {
             continue;
         };
+        // Spotify also returns empty extensions for episodes it no longer supplies. An empty
+        // protobuf decodes successfully, but it is not a row the user can identify or play.
+        if message.name().is_empty() {
+            continue;
+        }
         let track = episode_from(&entity.entity_uri, &message);
         tracks.insert(entity.entity_uri, track);
-    }
-    // Keep unavailable episodes in their playlist position instead of silently removing them.
-    for uri in episodes {
-        tracks.entry(uri.clone()).or_insert_with(|| Track {
-            id: identity::from_uri(&uri),
-            name: uri,
-            ..Default::default()
-        });
     }
     Ok(tracks)
 }
