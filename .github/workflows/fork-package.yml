@@ -132,11 +132,17 @@ jobs:
     if: github.ref == 'refs/heads/main' && needs.build.outputs.pr == '' && github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     container: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: write
     steps:
       - name: packaging dependencies
-        run: pacman -Syu --noconfirm --needed git gnupg github-cli jq
+        run: |
+          pacman -Syu --noconfirm --needed git gnupg github-cli jq \
+            alsa-lib dbus fontconfig hicolor-icon-theme libxcb libxkbcommon \
+            libxkbcommon-x11 sqlite vulkan-icd-loader wayland
       - uses: actions/checkout@v5
         with:
           ref: ${{ needs.build.outputs.sha }}
