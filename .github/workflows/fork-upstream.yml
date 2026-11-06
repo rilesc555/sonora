@@ -1,0 +1,54 @@
+name: fork upstream sync
+
+on:
+  schedule:
+    - cron: '17 8 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: fork-upstream
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'rilesc555/sonora' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: propose upstream changes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          git fetch https://github.com/sonorahq/sonora.git main
+          upstream=$(git rev-parse FETCH_HEAD)
+          if git merge-base --is-ancestor "$upstream" HEAD; then
+            echo 'The fork already contains upstream main.'
+            exit 0
+          fi
+          # Keep one update open. Conflicts and failed checks must not be bypassed by a newer PR.
+          existing=$(gh pr list --base main --state open --json number,headRefName \
+            --jq '[.[] | select(.headRefName | startswith("sync/upstream-"))][0].number // empty')
+          if [[ -n "$existing" ]]; then
+            echo "Upstream update PR #$existing still needs attention."
+            exit 0
+          fi
+          branch="sync/upstream-${upstream:0:12}"
+          # This branch contains upstream, not a reset of the patched main branch.
+          git push origin "$upstream:refs/heads/$branch"
+          url=$(gh pr create --base main --head "$branch" \
+            --title "chore: merge upstream ${upstream:0:12}" \
+            --body $'## Summary\n\n- merge upstream main while keeping the fork changes\n- run checks and a release build before automatic merge')
+          number=${url##*/}
+          # GITHUB_TOKEN pushes do not trigger other push/PR workflows. A workflow dispatch does.
+          gh workflow run fork-package.yml --ref main -f "pull_request=$number"
+          echo "$url"

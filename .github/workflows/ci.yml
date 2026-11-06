@@ -24,6 +24,7 @@ jobs:
   check:
     name: fmt, clippy and tests
     if: >-
+      github.repository == 'sonorahq/sonora' &&
       !startsWith(github.head_ref, 'release/') &&
       !contains(github.event.head_commit.message, 'from sonorahq/release/')
     runs-on: ubuntu-22.04
@@ -69,6 +70,7 @@ jobs:
   platforms:
     name: clippy on ${{ matrix.target }}
     if: >-
+      github.repository == 'sonorahq/sonora' &&
       (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') &&
       !startsWith(github.head_ref, 'release/')
     runs-on: ${{ matrix.os }}
@@ -104,6 +106,7 @@ jobs:
   build:
     name: ${{ matrix.target }}
     if: >-
+      github.repository == 'sonorahq/sonora' &&
       github.event_name != 'pull_request' &&
       !contains(github.event.head_commit.message, 'from sonorahq/release/')
     runs-on: ${{ matrix.os }}
