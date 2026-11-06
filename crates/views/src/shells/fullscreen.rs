@@ -444,17 +444,19 @@ impl FullscreenView {
         let radius = cx.theme().radius * 2.;
         let pad = px(COVER_LAYER_PAD);
         let inset = (layout_side - raster_side) / 2. - pad;
-        let (album, small, local_id, named) = match self.playback.read(cx).shown_track(cx) {
+        let (album, artwork, small, local_id, named) = match self.playback.read(cx).shown_track(cx)
+        {
             Some(track) => {
                 let local = track.id.as_deref().is_some_and(music::is_local_id);
                 let named = album_name(&track);
-                (track.album_id, track.cover, local, named)
+                let artwork = Cover::key(&track).map(str::to_owned);
+                (track.album_id, artwork, track.cover, local, named)
             }
-            None => (None, None, false, SharedString::default()),
+            None => (None, None, None, false, SharedString::default()),
         };
         let cover = self.cover.read(cx);
-        let cover_large = album.as_deref().and_then(|album| cover.large_for(album));
-        let cover_full = album.as_deref().and_then(|album| cover.full_for(album));
+        let cover_large = artwork.as_deref().and_then(|id| cover.large_for(id));
+        let cover_full = artwork.as_deref().and_then(|id| cover.full_for(id));
         let local = local_id || small.as_ref().is_some_and(|url| url.starts_with("file://"));
         // Only upgrade resolution for non-local tracks, since a local cover is always
         // the full resolution picture. The track's own embedded cover is prioritized
@@ -474,7 +476,7 @@ impl FullscreenView {
         let large = self.large.clone();
         let full = self.full.clone();
         let revision = self.revision;
-        let waiting = !local && album.is_some() && cover_large.is_none();
+        let waiting = !local && artwork.is_some() && cover_large.is_none();
 
         div()
             .id("fullscreen-artwork")
