@@ -79,7 +79,7 @@ pub fn version() -> &'static str {
 /// Whether this copy of Sonora installs its own updates, which is when a channel can be chosen.
 /// A copy a package manager installed, or a portable one, does not.
 pub fn updates_itself() -> bool {
-    !VERSION.contains("-rilesc555.") && Install::current().updates_itself()
+    !version().contains("-rilesc555.") && Install::current().updates_itself()
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -206,7 +206,7 @@ impl Updates {
     /// started by switching channels, which runs even with update checks turned off. A copy a
     /// package manager installed follows its own build's channel, and a nightly one never looks.
     fn look(&mut self, asked: bool, cx: &mut Context<Self>) {
-        if VERSION.contains("-rilesc555.") {
+        if version().contains("-rilesc555.") {
             return;
         }
         let channel = match updates_itself() {
