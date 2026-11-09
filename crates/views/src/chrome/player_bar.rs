@@ -210,9 +210,13 @@ impl PlayerBar {
             .read(cx)
             .shown_track(cx)
             .is_some_and(|track| track.is_episode());
-        let (open, tab) = {
+        let (open, tab, lyrics) = {
             let settings = self.settings.read(cx);
-            (settings.sidebar_right_open(), settings.sidebar_right_tab())
+            (
+                settings.sidebar_right_open(),
+                settings.sidebar_right_tab(),
+                settings.lyrics_enabled(),
+            )
         };
 
         let button = move |id: &'static str, icon: &'static str, hint: &'static str, side| {
@@ -244,12 +248,14 @@ impl PlayerBar {
             .flex_none()
             .items_center()
             .gap_1()
-            .child(button(
-                "player-lyrics",
-                "icons/mic-vocal.svg",
-                "lyrics-title",
-                SideTab::Lyrics,
-            ))
+            .when(lyrics, |this| {
+                this.child(button(
+                    "player-lyrics",
+                    "icons/mic-vocal.svg",
+                    "lyrics-title",
+                    SideTab::Lyrics,
+                ))
+            })
             .child(button(
                 "player-queue",
                 "icons/list-music.svg",
