@@ -44,7 +44,6 @@ use crate::connect::{
 };
 
 const DEVICE_NAME: &str = "Sonora";
-const TRACK_PREFIX: &str = "spotify:track:";
 /// The context a state names when it has none, which Spotify needs to see to keep the device
 /// active.
 const UNKNOWN_CONTEXT: &str = "spotify:unknown";
@@ -824,7 +823,7 @@ impl Worker {
         // A standalone song names itself when there is no collection to load on transfer.
         let uri = match &now.context {
             Some(context) => collection_uri(context, &self.session.username()),
-            None => format!("{TRACK_PREFIX}{}", track.id),
+            None => super::identity::to_uri(&track.id),
         };
         state.track = MessageField::some(provided(track, &uri));
         state.prev_tracks = now
@@ -1432,7 +1431,7 @@ fn wire_command(command: &Command, username: &str) -> Option<serde_json::Value> 
         Command::Enqueue { id, .. } => serde_json::json!({
             "endpoint": "add_to_queue",
             "track": {
-                "uri": format!("{TRACK_PREFIX}{id}"),
+                "uri": super::identity::to_uri(id),
                 "metadata": { "is_queued": "true" },
                 "provider": "queue",
             },
@@ -1450,7 +1449,7 @@ fn play_command(start: &Start, username: &str) -> Option<serde_json::Value> {
     let track = start
         .track
         .as_ref()
-        .map(|track| format!("{TRACK_PREFIX}{}", track.id));
+        .map(|track| super::identity::to_uri(&track.id));
     let context = match &start.context {
         Some(collection) => collection_uri(collection, username),
         None => track.clone()?,
@@ -1510,7 +1509,7 @@ fn kind(info: &DeviceInfo) -> DeviceKind {
 /// Reports the occurrence's identity and provenance consistently in every part of play order.
 fn provided(track: &QueuedTrack, context: &str) -> ProvidedTrack {
     let mut provided = ProvidedTrack {
-        uri: format!("{TRACK_PREFIX}{}", track.id),
+        uri: super::identity::to_uri(&track.id),
         uid: track.uid.clone(),
         provider: match track.queued {
             true => "queue",
@@ -1532,9 +1531,7 @@ fn provided(track: &QueuedTrack, context: &str) -> ProvidedTrack {
 }
 
 fn track_id(uri: &str) -> Option<String> {
-    uri.strip_prefix(TRACK_PREFIX)
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
+    super::identity::from_uri(uri)
 }
 
 /// The first tracks of a player state's queue, with who queued each when the state says.

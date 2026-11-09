@@ -2,12 +2,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use gpui::{Context, Entity, Task};
-use music::{CoverSize, MusicApi};
+use music::{CoverSize, MusicApi, Track};
 
 use crate::{Io, Playback, Session, SessionEvent, join};
 
-/// The artwork of one album: the large cover, and the full-resolution one when the provider
-/// serves something bigger.
+/// The artwork of an album or episode, with an original when the provider serves one.
 #[derive(Clone)]
 struct Art {
     large: String,
@@ -17,7 +16,7 @@ struct Art {
 pub struct Cover {
     session: Entity<Session>,
     playback: Entity<Playback>,
-    album: Option<String>,
+    item: Option<String>,
     large: Option<String>,
     full: Option<String>,
     cache: HashMap<String, Art>,
@@ -46,7 +45,7 @@ impl Cover {
         Self {
             session,
             playback,
-            album: None,
+            item: None,
             large: None,
             full: None,
             cache: HashMap::new(),
@@ -59,44 +58,52 @@ impl Cover {
         self.large.as_deref()
     }
 
-    /// Returns the large artwork only when it belongs to `album`.
-    pub fn large_for(&self, album: &str) -> Option<&str> {
+    /// The album or episode whose artwork follows this track. Episodes do not need album links.
+    pub fn key(track: &Track) -> Option<&str> {
+        match track.is_episode() {
+            true => track.id.as_deref(),
+            false => track.album_id.as_deref(),
+        }
+    }
+
+    /// Returns the large artwork only when it belongs to `item`.
+    pub fn large_for(&self, item: &str) -> Option<&str> {
         self.large
             .as_deref()
-            .filter(|_| self.album.as_deref() == Some(album))
+            .filter(|_| self.item.as_deref() == Some(item))
     }
 
     /// The full-resolution artwork for a cover that fills the screen, only when it belongs to
-    /// `album` and the provider serves something bigger than the large one.
-    pub fn full_for(&self, album: &str) -> Option<&str> {
+    /// `item` and the provider serves something bigger than the large one.
+    pub fn full_for(&self, item: &str) -> Option<&str> {
         self.full
             .as_deref()
-            .filter(|_| self.album.as_deref() == Some(album))
+            .filter(|_| self.item.as_deref() == Some(item))
     }
 
     fn forget(&mut self, cx: &mut Context<Self>) {
         self.task = None;
-        self.album = None;
+        self.item = None;
         self.large = None;
         self.full = None;
         self.cache.clear();
         cx.notify();
     }
 
-    /// Follows the shown track's album. Both covers come straight from the track's thumbnail
-    /// when the provider can tell, and the album is loaded only when it cannot.
+    /// Follows the shown track's album or episode. Reloading episode artwork also upgrades
+    /// thumbnails kept in a queue saved by an older version of the app.
     fn follow(&mut self, cx: &mut Context<Self>) {
-        let (album, thumbnail) = match self.playback.read(cx).shown_track(cx) {
-            Some(track) => (track.album_id, track.cover),
+        let (item, thumbnail) = match self.playback.read(cx).shown_track(cx) {
+            Some(track) => (Self::key(&track).map(str::to_owned), track.cover),
             None => (None, None),
         };
-        if album == self.album {
+        if item == self.item {
             return;
         }
         self.task = None;
-        self.album = album.clone();
-        let cached = album.as_ref().and_then(|id| self.cache.get(id)).cloned();
-        let client = album.as_deref().and_then(|id| self.client(id, cx));
+        self.item = item.clone();
+        let cached = item.as_ref().and_then(|id| self.cache.get(id)).cloned();
+        let client = item.as_deref().and_then(|id| self.client(id, cx));
         let derive = |size| client.as_ref()?.cover_at(thumbnail.as_deref()?, size);
         self.large = cached
             .as_ref()
@@ -107,7 +114,7 @@ impl Cover {
             .or_else(|| derive(CoverSize::Full));
         cx.notify();
 
-        let Some(id) = album else {
+        let Some(id) = item else {
             return;
         };
         if self.large.is_some() {
@@ -125,7 +132,10 @@ impl Cover {
         let wanted = id.clone();
         self.task = Some(cx.spawn(async move |this, cx| {
             let found = join(io.spawn(async move {
-                let large = client.album(&wanted).await?.album.cover_large;
+                let large = match wanted.starts_with(music::EPISODE_PREFIX) {
+                    true => client.track(&wanted).await?.cover,
+                    false => client.album(&wanted).await?.album.cover_large,
+                };
                 let full = large
                     .as_deref()
                     .and_then(|cover| client.cover_at(cover, CoverSize::Full));
@@ -141,7 +151,7 @@ impl Cover {
                             return;
                         };
                         this.cache.insert(id.clone(), art.clone());
-                        if this.album.as_deref() == Some(id.as_str()) {
+                        if this.item.as_deref() == Some(id.as_str()) {
                             this.large = Some(art.large);
                             this.full = art.full.or(this.full.take());
                             cx.notify();
@@ -157,7 +167,7 @@ impl Cover {
         }));
     }
 
-    /// The client that serves album `id`: the local library for a local id, the signed-in
+    /// The client that serves `id`: the local library for a local id, the signed-in
     /// provider otherwise.
     fn client(&self, id: &str, cx: &Context<Self>) -> Option<Arc<dyn MusicApi>> {
         let session = self.session.read(cx);

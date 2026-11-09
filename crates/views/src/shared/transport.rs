@@ -48,6 +48,9 @@ pub(crate) fn like(track: Option<&music::Track>, playback: &Entity<Playback>, cx
     let saved = id.is_some_and(|id| library.read(cx).saved(id));
 
     Button::new("toggle-liked-track")
+        .when(track.is_some_and(music::Track::is_episode), |button| {
+            button.hidden()
+        })
         .ghost()
         .backgroundless()
         .small()

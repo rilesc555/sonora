@@ -1252,6 +1252,7 @@ pub fn downloaded(id: &str, cx: &App) -> bool {
 /// streaming provider rather than from disk.
 fn downloadable(track: &Track) -> bool {
     track.playable
+        && !track.is_episode()
         && track
             .id
             .as_deref()

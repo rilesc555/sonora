@@ -1,0 +1,47 @@
+# Builds a package from the exact binary and source archive checked by fork-package.yml.
+pkgname=sonora-rilesc555-bin
+pkgver=${SONORA_PKGVER:?set SONORA_PKGVER to the checked build version}
+pkgrel=${SONORA_PKGREL:-1}
+pkgdesc='Sonora with Spotify podcast support, maintained by rilesc555'
+arch=('x86_64')
+url='https://github.com/rilesc555/sonora'
+license=('GPL-3.0-or-later')
+depends=('glibc' 'alsa-lib' 'dbus' 'fontconfig' 'hicolor-icon-theme' 'libxcb'
+         'libxkbcommon' 'libxkbcommon-x11' 'sqlite' 'vulkan-icd-loader' 'wayland')
+optdepends=('vulkan-radeon: Vulkan driver for AMD GPUs'
+            'vulkan-intel: Vulkan driver for Intel GPUs'
+            'nvidia-utils: Vulkan driver for NVIDIA GPUs'
+            'pipewire-alsa: audio output through PipeWire'
+            'pulseaudio-alsa: audio output through PulseAudio'
+            'webkit2gtk-4.1: sign in to YouTube Music through a browser window')
+provides=("sonora=${pkgver}")
+conflicts=('sonora' 'sonora-bin' 'sonora-nightly-bin')
+backup=('etc/pacman.d/sonora-rilesc555.conf')
+options=('!strip' '!debug')
+source=('sonora' 'source.tar.gz')
+sha256sums=("${SONORA_BINARY_SHA256:?set SONORA_BINARY_SHA256}"
+            "${SONORA_SOURCE_SHA256:?set SONORA_SOURCE_SHA256}")
+
+package() {
+  local root="${srcdir}/source"
+  install -Dm755 "${srcdir}/sonora" "${pkgdir}/usr/bin/sonora"
+  install -Dm644 "$root/assets/linux/sonora.desktop" "${pkgdir}/usr/share/applications/sonora.desktop"
+  install -Dm644 "$root/assets/linux/sonora.svg" "${pkgdir}/usr/share/icons/hicolor/scalable/apps/sonora.svg"
+  local icon size licence pack
+  for icon in "$root"/assets/linux/icons/hicolor/*/apps/sonora.png; do
+    size=$(basename "$(dirname "$(dirname "$icon")")")
+    install -Dm644 "$icon" "${pkgdir}/usr/share/icons/hicolor/${size}/apps/sonora.png"
+  done
+  install -Dm644 "$root/COPYING" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  install -Dm644 "$root/THIRD-PARTY.md" "${pkgdir}/usr/share/licenses/${pkgname}/THIRD-PARTY.md"
+  install -Dm644 "$root/assets/fonts/LICENSE.txt" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE.Inter"
+  install -Dm644 "$root/assets/icons/LICENSE" "${pkgdir}/usr/share/licenses/${pkgname}/icons/LICENSE"
+  for licence in "$root"/assets/icons/*/LICENSE; do
+    pack=$(basename "$(dirname "$licence")")
+    install -Dm644 "$licence" "${pkgdir}/usr/share/licenses/${pkgname}/icons/LICENSE.${pack}"
+  done
+  install -Dm644 "$root/packaging/arch/repository.conf" "${pkgdir}/etc/pacman.d/sonora-rilesc555.conf"
+  install -Dm755 "$root/packaging/arch/enable-repository.sh" "${pkgdir}/usr/lib/sonora-fork/enable-repository"
+  install -Dm644 "$root/packaging/arch/signing-key.asc" "${pkgdir}/usr/share/sonora-fork/signing-key.asc"
+  install -Dm644 "$root/packaging/arch/signing-key.fingerprint" "${pkgdir}/usr/share/sonora-fork/signing-key.fingerprint"
+}

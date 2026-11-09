@@ -21,6 +21,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
+- Play Spotify podcast episodes and songs together in playlists, with queue and seek controls.
 - Drag the playing song from the player bar onto a playlist, Pinned or the queue.
 - Play directly to hardware on macOS. Every output device is listed a second time under Direct
   to hardware, and picking one there keeps every other app off it.
@@ -55,6 +57,9 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Upgrade Spotify episode covers in fullscreen even when the queue contains an old thumbnail.
+- Show Spotify episode covers at their largest available size instead of enlarging thumbnails.
+- Omit empty Spotify episode entries instead of showing blank rows with a zero length.
 - On macOS, scrolling and clicks no longer lag behind in fullscreen and with lyrics open.
 - Horizontal card rows scroll all the way to the page edges, including album recommendations.
 - Removing an Apple Music song or album from the library takes its like off right away, the way Apple does.

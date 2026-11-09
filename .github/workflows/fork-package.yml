@@ -1,0 +1,291 @@
+name: fork checks and package
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      pull_request:
+        description: 'Upstream sync PR to check and merge; leave empty to publish main'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-package-${{ github.event.pull_request.number || inputs.pull_request || 'main' }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_PROFILE_RELEASE_STRIP: symbols
+  CARGO_PROFILE_DEV_DEBUG: '0'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_INCREMENTAL: '0'
+
+jobs:
+  source:
+    if: github.repository == 'rilesc555/sonora'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      sha: ${{ steps.source.outputs.sha }}
+      version: ${{ steps.source.outputs.version }}
+      app_version: ${{ steps.source.outputs.app_version }}
+      pr: ${{ steps.source.outputs.pr }}
+      head: ${{ steps.source.outputs.head }}
+      base: ${{ steps.source.outputs.base }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: select and record the exact source
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ inputs.pull_request }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$PR" ]]; then
+            [[ "$PR" =~ ^[0-9]+$ ]]
+            gh api "repos/$GH_REPO/pulls/$PR" \
+              --jq 'select(.base.ref == "main" and (.head.ref | startswith("sync/upstream-")) and .head.repo.full_name == "rilesc555/sonora" and .user.login == "github-actions[bot]" and .state == "open")' \
+              | grep -q .
+            head=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
+            base=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .base.sha)
+            # A conflicted PR has no merge ref, so this fails without publishing or merging.
+            git fetch origin "refs/pull/$PR/merge"
+            git checkout --detach FETCH_HEAD
+            test "$(git rev-parse HEAD^1)" = "$base"
+            test "$(git rev-parse HEAD^2)" = "$head"
+            echo "pr=$PR" >> "$GITHUB_OUTPUT"
+            echo "head=$head" >> "$GITHUB_OUTPUT"
+            echo "base=$base" >> "$GITHUB_OUTPUT"
+          fi
+          base_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
+          revision=$(git rev-list --count HEAD)
+          short=$(git rev-parse --short=12 HEAD)
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "version=$base_version.r$revision.g$short" >> "$GITHUB_OUTPUT"
+          echo "app_version=$base_version-rilesc555.r$revision.g$short" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: source
+    runs-on: ubuntu-22.04
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SONORA_VERSION: ${{ needs.source.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - name: system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config cmake mold \
+            libasound2-dev libfontconfig1-dev libfreetype-dev libsqlite3-dev \
+            libx11-dev libxcb1-dev libxcursor-dev libxi-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev \
+            libvulkan-dev libdbus-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-linux
+          cache-on-failure: true
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked --package sonora
+      - name: stage checked build
+        run: |
+          mkdir -p staging
+          cp target/release/sonora staging/sonora
+          git archive --format=tar.gz --prefix=source/ HEAD > staging/source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-build-${{ github.run_id }}
+          path: staging/*
+          retention-days: 7
+      - name: compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
+  windows:
+    needs: source
+    runs-on: windows-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SONORA_VERSION: ${{ needs.source.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-windows-x86_64
+          cache-on-failure: true
+      - run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
+      - run: cargo build --release --locked --package sonora --target x86_64-pc-windows-msvc
+      - name: install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: build the Windows installer
+        env:
+          SONORA_ARCH: x64compatible
+          SONORA_SETUP: Sonora-Setup
+        run: |
+          New-Item -ItemType Directory dist
+          $env:SONORA_EXE = (Resolve-Path 'target/x86_64-pc-windows-msvc/release/sonora.exe').Path
+          $env:SONORA_DIST = (Resolve-Path 'dist').Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" 'scripts/windows/sonora.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-windows-${{ github.run_id }}
+          path: dist/Sonora-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
+  merge:
+    needs: [source, build, windows]
+    if: github.event_name == 'workflow_dispatch' && needs.source.outputs.pr != ''
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - name: merge only the checked update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ needs.source.outputs.pr }}
+          HEAD: ${{ needs.source.outputs.head }}
+          BASE: ${{ needs.source.outputs.base }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$BASE"
+          gh pr merge "$PR" --merge --match-head-commit "$HEAD"
+          # The merge used GITHUB_TOKEN, so explicitly start the publication workflow on main.
+          gh workflow run fork-package.yml --ref main
+
+  package:
+    needs: [source, build, windows]
+    if: github.ref == 'refs/heads/main' && needs.source.outputs.pr == '' && github.event_name != 'pull_request'
+    runs-on: ubuntu-22.04
+    container: archlinux:base-devel
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: write
+    steps:
+      - name: packaging dependencies
+        run: |
+          pacman -Syu --noconfirm --needed git gnupg github-cli jq \
+            alsa-lib dbus fontconfig hicolor-icon-theme libxcb libxkbcommon \
+            libxkbcommon-x11 sqlite vulkan-icd-loader wayland
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: fork-build-${{ github.run_id }}
+          path: /tmp/fork-package
+      - uses: actions/download-artifact@v4
+        with:
+          name: fork-windows-${{ github.run_id }}
+          path: /tmp/fork-windows
+      - name: assemble the Arch package without signing credentials
+        env:
+          SONORA_PKGVER: ${{ needs.source.outputs.version }}
+          SONORA_PKGREL: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          cp packaging/arch/PKGBUILD /tmp/fork-package/
+          useradd -m builder
+          chown -R builder:builder /tmp/fork-package
+          cd /tmp/fork-package
+          binary_sum=$(sha256sum sonora | cut -d ' ' -f 1)
+          source_sum=$(sha256sum source.tar.gz | cut -d ' ' -f 1)
+          runuser -u builder -- env SONORA_PKGVER="$SONORA_PKGVER" SONORA_PKGREL="$SONORA_PKGREL" \
+            SONORA_BINARY_SHA256="$binary_sum" SONORA_SOURCE_SHA256="$source_sum" \
+            makepkg --cleanbuild --noconfirm
+      - name: sign the package and repository
+        env:
+          FORK_SIGNING_KEY: ${{ secrets.FORK_SIGNING_KEY }}
+          VERSION: ${{ needs.source.outputs.version }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          PKGREL: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/sonora-signing"
+          install -dm700 "$GNUPGHOME"
+          trap 'gpgconf --kill gpg-agent; rm -rf "$GNUPGHOME"' EXIT
+          printf '%s' "$FORK_SIGNING_KEY" | gpg --batch --import
+          key=$(cat packaging/arch/signing-key.fingerprint)
+          gpg --batch --list-secret-keys "$key"
+          repo=public/arch/x86_64
+          mkdir -p "$repo"
+          cp /tmp/fork-package/*.pkg.tar.zst "$repo/"
+          package=$(find "$repo" -maxdepth 1 -name '*.pkg.tar.zst' -print)
+          gpg --batch --yes --local-user "$key" --detach-sign "$package"
+          repo-add --sign --key "$key" "$repo/sonora-rilesc555.db.tar.gz" "$package"
+          # Pages artifacts cannot contain symlinks. pacman's conventional aliases are files here.
+          for alias in "$repo"/*.db "$repo"/*.db.sig "$repo"/*.files "$repo"/*.files.sig; do
+            cp --remove-destination "$(readlink -f "$alias")" "$alias"
+          done
+          cp packaging/arch/signing-key.asc "$repo/"
+          jq -n --arg version "$VERSION-$PKGREL" --arg commit "$SOURCE_SHA" \
+            --arg package "$(basename "$package")" --arg fingerprint "$key" \
+            '{version: $version, commit: $commit, package: $package, fingerprint: $fingerprint}' > "$repo/latest.json"
+          (cd "$repo" && sha256sum *.pkg.tar.zst > SHA256SUMS)
+          (cd /tmp/fork-windows && sha256sum Sonora-Setup.exe) >> "$repo/SHA256SUMS"
+      - name: keep immutable packages for rollback
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.source.outputs.version }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+          PKGREL: ${{ github.run_number }}
+        run: |
+          gh release create "fork-$VERSION-$PKGREL" --target "$SOURCE_SHA" \
+            --title "Sonora fork $VERSION-$PKGREL" --latest=false \
+            --notes "Checked source: $SOURCE_SHA. Signed x86_64 Arch package and unsigned x64 Windows installer with Spotify episode support." \
+            public/arch/x86_64/*.pkg.tar.zst public/arch/x86_64/*.pkg.tar.zst.sig \
+            public/arch/x86_64/signing-key.asc public/arch/x86_64/SHA256SUMS \
+            /tmp/fork-windows/Sonora-Setup.exe
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: package
+    runs-on: ubuntu-22.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/deploy-pages@v4
+        id: deployment

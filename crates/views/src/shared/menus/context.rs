@@ -374,7 +374,10 @@ impl ItemMenu {
         // A provider that lists no station tracks gets no station item at all, rather than one
         // that plays the seed and stops.
         let stations = Sonora::global(cx).session.read(cx).capabilities().radio;
-        let radio = match (many || !stations, track.id.is_some() && track.playable) {
+        let radio = match (
+            many || !stations || track.is_episode(),
+            track.id.is_some() && track.playable,
+        ) {
             (true, _) => None,
             (false, true) => {
                 let track = track.clone();
@@ -393,7 +396,11 @@ impl ItemMenu {
                     .disabled(),
             ),
         };
-        let album = match (many, columns.album, track.album_id.clone()) {
+        let album = match (
+            many || track.is_episode(),
+            columns.album,
+            track.album_id.clone(),
+        ) {
             (true, _, _) | (false, true, _) => None,
             (false, false, Some(id)) if Some(id.as_str()) == current_album => None,
             (false, false, Some(id)) => Some(
@@ -416,7 +423,7 @@ impl ItemMenu {
                 Some((artist.name.clone(), id))
             })
             .collect::<Vec<_>>();
-        let artist = match (many, columns.artists, artists.len()) {
+        let artist = match (many || track.is_episode(), columns.artists, artists.len()) {
             (true, _, _) | (false, true, _) => None,
             (false, false, 0) => Some(
                 MenuItem::new("go-to-artist", t!("menu-go-to-artist"))
@@ -450,7 +457,7 @@ impl ItemMenu {
             }
         };
 
-        let details = match (many, track.id.clone()) {
+        let details = match (many || track.is_episode(), track.id.clone()) {
             (true, _) => None,
             (false, Some(id)) => Some(
                 MenuItem::new("view-details", t!("menu-view-details"))
@@ -766,7 +773,10 @@ fn track_tiles(
         !named.is_empty() && named.iter().all(|id| test(state, id))
     };
 
-    let favorable = actionable(Library::pending);
+    let favorable: Vec<Track> = actionable(Library::pending)
+        .into_iter()
+        .filter(|track| !track.is_episode())
+        .collect();
     let saved = every(Library::saved);
     // Unfavoriting asks first where the heart is the library itself, and the menu gives way to
     // that question rather than staying open over it.
@@ -795,7 +805,8 @@ fn track_tiles(
             })
         });
 
-    let shelved = editable.then(|| {
+    let songs_only = tracks.iter().all(|track| !track.is_episode());
+    let shelved = (editable && songs_only).then(|| {
         let held = actionable(Library::pending_library);
         let present = every(Library::in_library);
         Tile::new("tile-library", "icons/library-big.svg", "menu-save-library")
@@ -816,11 +827,12 @@ fn track_tiles(
             })
     });
 
-    let download = (!ids.is_empty() && !imported)
+    let download = (!ids.is_empty() && !imported && songs_only)
         .then(|| track_download_tile(tracks, ids, cx))
         .flatten();
 
-    [heart]
+    songs_only
+        .then_some(heart)
         .into_iter()
         .chain(shelved)
         .chain(download)

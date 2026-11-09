@@ -51,6 +51,14 @@ impl MusicApi for LibrespotClient {
     }
 
     fn share_url(&self, kind: MediaKind, id: &str) -> Option<String> {
+        if matches!(kind, MediaKind::Track)
+            && let Some(id) = id.strip_prefix(crate::EPISODE_PREFIX)
+        {
+            return Some(format!(
+                "https://open.spotify.com/episode/{}",
+                escape::component(id)
+            ));
+        }
         let kind = match kind {
             MediaKind::Track => "track",
             MediaKind::Album => "album",
@@ -96,6 +104,10 @@ impl MusicApi for LibrespotClient {
     }
 
     async fn set_track_saved(&self, track_id: &str, saved: bool) -> Result<()> {
+        anyhow::ensure!(
+            !track_id.starts_with(crate::EPISODE_PREFIX),
+            "episodes cannot be added to liked songs"
+        );
         collection2::set_track_saved(&self.session, track_id, saved).await
     }
 
@@ -104,6 +116,9 @@ impl MusicApi for LibrespotClient {
     }
 
     async fn track_playcount(&self, track_id: &str) -> Result<Option<u64>> {
+        if track_id.starts_with(crate::EPISODE_PREFIX) {
+            return Ok(None);
+        }
         pathfinder::track(&self.session, track_id).await
     }
 
@@ -179,6 +194,9 @@ impl MusicApi for LibrespotClient {
         track_id: &str,
         _from: Option<&str>,
     ) -> Result<(Vec<Track>, Option<String>)> {
+        if track_id.starts_with(crate::EPISODE_PREFIX) {
+            return Ok((Vec::new(), None));
+        }
         Ok((radio::track_radio(&self.session, track_id).await?, None))
     }
 

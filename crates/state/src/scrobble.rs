@@ -380,6 +380,9 @@ impl Scrobbling {
 
 /// Turns a track into a listen. A track with no artist or no title is not submittable anywhere.
 fn played(track: &Track, at: SystemTime) -> Option<Play> {
+    if track.is_episode() {
+        return None;
+    }
     let artist = track
         .artist_refs
         .first()

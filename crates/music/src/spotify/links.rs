@@ -55,6 +55,7 @@ fn route(kind: &str, id: &str) -> Option<Linked> {
     let id = id.to_owned();
     match kind {
         "track" => Some(Linked::Track(id)),
+        "episode" => Some(Linked::Track(format!("{}{id}", crate::EPISODE_PREFIX))),
         "album" => Some(Linked::Album(id)),
         "playlist" => Some(Linked::Playlist(id)),
         "artist" => Some(Linked::Artist(id)),
