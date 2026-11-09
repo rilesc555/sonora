@@ -7,8 +7,9 @@ and merges `sonorahq/sonora`'s `main`. Do not reset it to upstream or force-sync
 
 - `fork-upstream.yml` checks upstream daily at 08:17 UTC. It opens one `sync/upstream-*` pull
   request at a time. It never replaces the patched `main` branch.
-- `fork-package.yml` checks the proposed merge with formatting, strict Clippy, the existing
-  tests, and a Linux release build. Only a passing automated upstream PR is merged. If the
+- `fork-package.yml` checks the proposed merge with formatting, strict Clippy on Linux and
+  Windows, the existing tests, and release builds for both platforms.
+  Only a passing automated upstream PR is merged. If the
   head or base changes during the checks, the merge stops.
 - A merge made with `GITHUB_TOKEN` does not trigger push workflows, so the sync run explicitly
   dispatches a new package run on `main`. Ordinary pushes to `main` also start the package run.
@@ -34,6 +35,18 @@ Rebuild and publish the current `main`:
 ```sh
 gh workflow run fork-package.yml --repo rilesc555/sonora --ref main
 ```
+
+## Windows
+
+Each passing package run on `main` adds `Sonora-Setup.exe` to the same GitHub Release as the
+Arch package. The installer supports x64 Windows. It uses the upstream installer identity,
+shortcuts, and user data paths, so it can replace an upstream installation in place.
+Its version includes `rilesc555` and the source commit. `SHA256SUMS` includes the installer.
+The Windows installer has no code signature.
+
+Download `Sonora-Setup.exe` from this fork's newest `fork-*` release and run it to install or
+update. Fork builds do not check for upstream updates. Install later Windows builds with the
+installer from a newer fork release.
 
 ## Failed updates
 

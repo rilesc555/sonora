@@ -9,6 +9,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
 - Play Spotify podcast episodes and songs together in playlists, with queue and seek controls.
 - Drag the playing song from the player bar onto a playlist, Pinned or the queue.
 - Play directly to hardware on macOS. Every output device is listed a second time under Direct

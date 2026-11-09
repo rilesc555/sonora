@@ -27,18 +27,16 @@ env:
   CARGO_INCREMENTAL: '0'
 
 jobs:
-  build:
+  source:
     if: github.repository == 'rilesc555/sonora'
     runs-on: ubuntu-22.04
-    env:
-      RUSTC_WRAPPER: sccache
-      SCCACHE_GHA_ENABLED: 'true'
     permissions:
       contents: read
       pull-requests: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       version: ${{ steps.source.outputs.version }}
+      app_version: ${{ steps.source.outputs.app_version }}
       pr: ${{ steps.source.outputs.pr }}
       head: ${{ steps.source.outputs.head }}
       base: ${{ steps.source.outputs.base }}
@@ -75,7 +73,19 @@ jobs:
           short=$(git rev-parse --short=12 HEAD)
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "version=$base_version.r$revision.g$short" >> "$GITHUB_OUTPUT"
-          echo "SONORA_VERSION=$base_version-rilesc555.r$revision.g$short" >> "$GITHUB_ENV"
+          echo "app_version=$base_version-rilesc555.r$revision.g$short" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: source
+    runs-on: ubuntu-22.04
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SONORA_VERSION: ${{ needs.source.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
       - name: system dependencies
         run: |
           sudo apt-get update
@@ -111,9 +121,52 @@ jobs:
         if: always()
         run: sccache --show-stats
 
+  windows:
+    needs: source
+    runs-on: windows-latest
+    env:
+      RUSTC_WRAPPER: sccache
+      SCCACHE_GHA_ENABLED: 'true'
+      SONORA_VERSION: ${{ needs.source.outputs.app_version }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+          components: clippy
+      - uses: mozilla-actions/sccache-action@v0.0.9
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: fork-windows-x86_64
+          cache-on-failure: true
+      - run: cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings
+      - run: cargo build --release --locked --package sonora --target x86_64-pc-windows-msvc
+      - name: install Inno Setup
+        run: choco install innosetup --yes --no-progress
+      - name: build the Windows installer
+        env:
+          SONORA_ARCH: x64compatible
+          SONORA_SETUP: Sonora-Setup
+        run: |
+          New-Item -ItemType Directory dist
+          $env:SONORA_EXE = (Resolve-Path 'target/x86_64-pc-windows-msvc/release/sonora.exe').Path
+          $env:SONORA_DIST = (Resolve-Path 'dist').Path
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" 'scripts/windows/sonora.iss'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-windows-${{ github.run_id }}
+          path: dist/Sonora-Setup.exe
+          if-no-files-found: error
+          retention-days: 7
+      - name: compiler cache statistics
+        if: always()
+        run: sccache --show-stats
+
   merge:
-    needs: build
-    if: github.event_name == 'workflow_dispatch' && needs.build.outputs.pr != ''
+    needs: [source, build, windows]
+    if: github.event_name == 'workflow_dispatch' && needs.source.outputs.pr != ''
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -124,9 +177,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          PR: ${{ needs.build.outputs.pr }}
-          HEAD: ${{ needs.build.outputs.head }}
-          BASE: ${{ needs.build.outputs.base }}
+          PR: ${{ needs.source.outputs.pr }}
+          HEAD: ${{ needs.source.outputs.head }}
+          BASE: ${{ needs.source.outputs.base }}
         run: |
           set -euo pipefail
           test "$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)" = "$BASE"
@@ -135,8 +188,8 @@ jobs:
           gh workflow run fork-package.yml --ref main
 
   package:
-    needs: build
-    if: github.ref == 'refs/heads/main' && needs.build.outputs.pr == '' && github.event_name != 'pull_request'
+    needs: [source, build, windows]
+    if: github.ref == 'refs/heads/main' && needs.source.outputs.pr == '' && github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     container: archlinux:base-devel
     defaults:
@@ -152,14 +205,18 @@ jobs:
             libxkbcommon-x11 sqlite vulkan-icd-loader wayland
       - uses: actions/checkout@v5
         with:
-          ref: ${{ needs.build.outputs.sha }}
+          ref: ${{ needs.source.outputs.sha }}
       - uses: actions/download-artifact@v4
         with:
           name: fork-build-${{ github.run_id }}
           path: /tmp/fork-package
+      - uses: actions/download-artifact@v4
+        with:
+          name: fork-windows-${{ github.run_id }}
+          path: /tmp/fork-windows
       - name: assemble the Arch package without signing credentials
         env:
-          SONORA_PKGVER: ${{ needs.build.outputs.version }}
+          SONORA_PKGVER: ${{ needs.source.outputs.version }}
           SONORA_PKGREL: ${{ github.run_number }}
         run: |
           set -euo pipefail
@@ -175,8 +232,8 @@ jobs:
       - name: sign the package and repository
         env:
           FORK_SIGNING_KEY: ${{ secrets.FORK_SIGNING_KEY }}
-          VERSION: ${{ needs.build.outputs.version }}
-          SOURCE_SHA: ${{ needs.build.outputs.sha }}
+          VERSION: ${{ needs.source.outputs.version }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
           PKGREL: ${{ github.run_number }}
         run: |
           set -euo pipefail
@@ -201,19 +258,21 @@ jobs:
             --arg package "$(basename "$package")" --arg fingerprint "$key" \
             '{version: $version, commit: $commit, package: $package, fingerprint: $fingerprint}' > "$repo/latest.json"
           (cd "$repo" && sha256sum *.pkg.tar.zst > SHA256SUMS)
+          (cd /tmp/fork-windows && sha256sum Sonora-Setup.exe) >> "$repo/SHA256SUMS"
       - name: keep immutable packages for rollback
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.build.outputs.version }}
-          SOURCE_SHA: ${{ needs.build.outputs.sha }}
+          VERSION: ${{ needs.source.outputs.version }}
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
           PKGREL: ${{ github.run_number }}
         run: |
           gh release create "fork-$VERSION-$PKGREL" --target "$SOURCE_SHA" \
             --title "Sonora fork $VERSION-$PKGREL" --latest=false \
-            --notes "Checked source: $SOURCE_SHA. Signed x86_64 Arch package with Spotify episode support." \
+            --notes "Checked source: $SOURCE_SHA. Signed x86_64 Arch package and unsigned x64 Windows installer with Spotify episode support." \
             public/arch/x86_64/*.pkg.tar.zst public/arch/x86_64/*.pkg.tar.zst.sig \
-            public/arch/x86_64/signing-key.asc public/arch/x86_64/SHA256SUMS
+            public/arch/x86_64/signing-key.asc public/arch/x86_64/SHA256SUMS \
+            /tmp/fork-windows/Sonora-Setup.exe
       - uses: actions/upload-pages-artifact@v3
         with:
           path: public
