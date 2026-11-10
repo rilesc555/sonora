@@ -1,6 +1,6 @@
 name: fork checks and package
 run-name: >-
-  ${{ inputs.pull_request && format('check and merge upstream PR #{0}', inputs.pull_request) || github.event.pull_request.title || 'check and publish main' }}
+  ${{ inputs.pull_request && format('check and merge release PR #{0}', inputs.pull_request) || github.event.pull_request.title || 'check and publish main' }}
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       pull_request:
-        description: 'Upstream sync PR to check and merge; leave empty to publish main'
+        description: 'Official stable release PR to check and merge; leave empty to publish main'
         required: false
         type: string
 

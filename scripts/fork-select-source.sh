@@ -1,24 +1,29 @@
 #!/bin/bash
-# Select a bot-created upstream PR's exact merge commit, allowing GitHub time to prepare it.
+# Select a bot-created stable release PR's exact merge commit, allowing GitHub time to prepare it.
 # The caller must use a trusted checkout and pass GitHub's output file and read-only token.
 set -euo pipefail
 
-pr=${1:?pass the upstream PR number}
+pr=${1:?pass the stable release PR number}
 [[ "$pr" =~ ^[0-9]+$ ]]
 : "${GH_REPO:?set GH_REPO}"
 : "${GITHUB_OUTPUT:?set GITHUB_OUTPUT}"
 
+release=$(bash scripts/fork-latest-release.sh)
+tag=$(jq -r .tag <<< "$release")
+commit=$(jq -r .commit <<< "$release")
+branch="sync/release-$tag-${commit:0:12}"
+
 for attempt in {1..36}; do
   proposal=$(gh api "repos/$GH_REPO/pulls/$pr")
-  jq -e --arg repo "$GH_REPO" '
+  jq -e --arg repo "$GH_REPO" --arg branch "$branch" --arg commit "$commit" '
     .base.ref == "main" and
-    (.head.ref | startswith("sync/upstream-")) and
+    .head.ref == $branch and .head.sha == $commit and
     .head.repo.full_name == $repo and
     .user.login == "github-actions[bot]" and
     .state == "open"
   ' <<< "$proposal" > /dev/null
   if jq -e '.mergeable == false' <<< "$proposal" > /dev/null; then
-    echo "::error::Upstream PR #$pr has merge conflicts. Resolve them before retrying."
+    echo "::error::Stable release PR #$pr has merge conflicts. Resolve them before retrying."
     exit 1
   fi
 

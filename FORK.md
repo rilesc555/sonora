@@ -1,17 +1,20 @@
 # rilesc555's Sonora fork
 
 This fork adds Spotify episodes to mixed playlists. Its `main` branch keeps the fork changes
-and merges `sonorahq/sonora`'s `main`. Do not reset it to upstream or force-sync it.
+and merges official stable release tags from `sonorahq/sonora`, not its development `main`.
+Do not reset the fork to upstream or force-sync it.
 
 ## Updates
 
-- `fork-upstream.yml` checks upstream daily at 08:17 UTC. It opens one `sync/upstream-*` pull
-  request at a time. It retries an existing update on later runs unless its checks are already
-  active. It never replaces the patched `main` branch.
+- `fork-upstream.yml` checks GitHub's latest official release daily at 08:17 UTC. It rejects
+  drafts, prereleases, and tags other than `vMAJOR.MINOR.PATCH`, then fetches the exact tag
+  commit. It opens a `sync/release-TAG-COMMIT` PR and retries that release's existing PR unless
+  its checks are already active. It never fetches upstream `main` as an update target.
 - `fork-package.yml` checks the proposed merge with formatting, strict Clippy on Linux and
   Windows, the existing tests, and release builds for both platforms.
-  Only a passing automated upstream PR is merged. If the
-  head or base changes during the checks, the merge stops.
+  Only a passing bot-created release PR is merged. The PR head must equal the official release
+  tag's commit. Development-head PRs are rejected even if dispatched manually. If the head or
+  base changes during the checks, the merge stops.
 - The source job waits up to three minutes for GitHub to prepare a current merge ref, and stops
   immediately for a confirmed conflict. PR review runs use a separate concurrency group so
   they cannot cancel the dispatched automatic merge. GitHub may ask for approval of a bot's
@@ -29,7 +32,7 @@ and merges `sonorahq/sonora`'s `main`. Do not reset it to upstream or force-sync
 - GitHub Pages serves the repository at `https://rilesc555.github.io/sonora/arch/x86_64`.
   GitHub Releases keeps signed packages from earlier builds for rollback.
 
-Start an upstream check now:
+Start an official release check now:
 
 ```sh
 gh workflow run fork-upstream.yml --repo rilesc555/sonora --ref main
@@ -55,18 +58,25 @@ installer from a newer fork release.
 
 ## Failed updates
 
-An open upstream PR blocks newer upstream PRs, but its checks are retried on the next sync.
-Inspect that PR and its Actions run if the same failure persists.
+An open release PR is retried on the next sync while it remains the latest official release.
+A newer official release can supersede a failed older release. Inspect a repeatedly failing
+PR and its Actions run; no failing version is published.
 If a dependency or build service failed, retry the workflow for the same PR:
 
 ```sh
 gh workflow run fork-package.yml --repo rilesc555/sonora --ref main -f pull_request=NUMBER
 ```
 
-For a merge conflict, fetch the PR branch, merge `origin/main` into it, resolve the conflict,
-and push the resolution. Then run the same command above. Do not remove the podcast changes
-just to make the merge pass. Closing the PR without merging allows a later daily run to try
-again, but does not fix the conflict.
+For a merge conflict, prepare and review a manual merge of the exact release tag in a
+maintenance branch. Do not remove the podcast changes just to make the merge pass. Automatic
+release PRs must keep their head at the official tag; modified heads are not auto-merged.
+Manual fixes on the fork's `main` must still pass the package workflow before publication.
+
+The fork followed development `main` before this release-only policy was introduced. Those
+earlier merges remain in history; changing the update channel does not discard existing
+code or downgrade the installed package. Later official releases will include those commits
+when upstream releases them. A rebuild strictly from a release plus selected fork patches is
+a separate migration, not an automatic reset.
 
 Versions have the form `0.47.0.r123.gabcdef123456-7`: upstream version, source commit count,
 source commit, and package workflow run number. A new package does not install itself into a

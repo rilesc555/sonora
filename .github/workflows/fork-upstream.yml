@@ -23,36 +23,37 @@ jobs:
         with:
           fetch-depth: 0
           ref: main
-      - name: propose upstream changes
+      - name: propose the latest official stable release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-          git fetch https://github.com/sonorahq/sonora.git main
-          upstream=$(git rev-parse FETCH_HEAD)
+          release=$(bash scripts/fork-latest-release.sh)
+          tag=$(jq -r .tag <<< "$release")
+          upstream=$(jq -r .commit <<< "$release")
           if git merge-base --is-ancestor "$upstream" HEAD; then
-            echo 'The fork already contains upstream main.'
+            echo "The fork already contains official stable release $tag."
             exit 0
           fi
-          # Keep one update open. Conflicts and failed checks must not be bypassed by a newer PR.
-          existing=$(gh pr list --base main --state open --json number,headRefName \
-            --jq '[.[] | select(.headRefName | startswith("sync/upstream-"))][0].number // empty')
+          branch="sync/release-$tag-${upstream:0:12}"
+          # Retry this exact release, never a development-head PR left from the old policy.
+          existing=$(gh pr list --base main --head "$branch" --state open --json number \
+            --jq '.[0].number // empty')
           if [[ -n "$existing" ]]; then
             number=$existing
-            echo "Retrying checks for upstream update PR #$number."
+            echo "Retrying checks for stable release $tag in PR #$number."
           else
-            branch="sync/upstream-${upstream:0:12}"
-            # This branch contains upstream, not a reset of the patched main branch.
+            # This branch contains only the official tag, not the current development head.
             git push origin "$upstream:refs/heads/$branch"
             url=$(gh pr create --base main --head "$branch" \
-              --title "chore: merge upstream ${upstream:0:12}" \
-              --body $'## Summary\n\n- merge upstream main while keeping the fork changes\n- run checks and a release build before automatic merge')
+              --title "chore: merge official release $tag" \
+              --body "$(printf '## Summary\n\n- merge official stable release %s while keeping the fork changes\n- run checks and release builds before automatic merge' "$tag")")
             number=${url##*/}
             echo "$url"
           fi
           [[ "$number" =~ ^[0-9]+$ ]]
-          title="check and merge upstream PR #$number"
+          title="check and merge release PR #$number"
           active=$(gh run list --workflow fork-package.yml --event workflow_dispatch --limit 100 \
             --json databaseId,displayTitle,status \
             --jq ".[] | select(.displayTitle == \"$title\" and .status != \"completed\") | .databaseId")
