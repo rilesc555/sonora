@@ -39,16 +39,27 @@ jobs:
           existing=$(gh pr list --base main --state open --json number,headRefName \
             --jq '[.[] | select(.headRefName | startswith("sync/upstream-"))][0].number // empty')
           if [[ -n "$existing" ]]; then
-            echo "Upstream update PR #$existing still needs attention."
+            number=$existing
+            echo "Retrying checks for upstream update PR #$number."
+          else
+            branch="sync/upstream-${upstream:0:12}"
+            # This branch contains upstream, not a reset of the patched main branch.
+            git push origin "$upstream:refs/heads/$branch"
+            url=$(gh pr create --base main --head "$branch" \
+              --title "chore: merge upstream ${upstream:0:12}" \
+              --body $'## Summary\n\n- merge upstream main while keeping the fork changes\n- run checks and a release build before automatic merge')
+            number=${url##*/}
+            echo "$url"
+          fi
+          [[ "$number" =~ ^[0-9]+$ ]]
+          title="check and merge upstream PR #$number"
+          active=$(gh run list --workflow fork-package.yml --event workflow_dispatch --limit 100 \
+            --json databaseId,displayTitle,status \
+            --jq ".[] | select(.displayTitle == \"$title\" and .status != \"completed\") | .databaseId")
+          if [[ -n "$active" ]]; then
+            echo "Checks for PR #$number are already queued or running."
             exit 0
           fi
-          branch="sync/upstream-${upstream:0:12}"
-          # This branch contains upstream, not a reset of the patched main branch.
-          git push origin "$upstream:refs/heads/$branch"
-          url=$(gh pr create --base main --head "$branch" \
-            --title "chore: merge upstream ${upstream:0:12}" \
-            --body $'## Summary\n\n- merge upstream main while keeping the fork changes\n- run checks and a release build before automatic merge')
-          number=${url##*/}
-          # GITHUB_TOKEN pushes do not trigger other push/PR workflows. A workflow dispatch does.
+          # Dispatch trusted main explicitly. Bot PR events can need approval and must not be
+          # the only path to checks and automatic merge.
           gh workflow run fork-package.yml --ref main -f "pull_request=$number"
-          echo "$url"

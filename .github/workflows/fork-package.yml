@@ -1,4 +1,6 @@
 name: fork checks and package
+run-name: >-
+  ${{ inputs.pull_request && format('check and merge upstream PR #{0}', inputs.pull_request) || github.event.pull_request.title || 'check and publish main' }}
 
 on:
   push:
@@ -16,7 +18,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: fork-package-${{ github.event.pull_request.number || inputs.pull_request || 'main' }}
+  # A PR review must not cancel the trusted dispatch that checks and merges the same update.
+  group: fork-package-${{ github.event_name == 'pull_request' && 'review-' || '' }}${{ github.event.pull_request.number || inputs.pull_request || 'main' }}
   cancel-in-progress: true
 
 env:
@@ -53,20 +56,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$PR" ]]; then
-            [[ "$PR" =~ ^[0-9]+$ ]]
-            gh api "repos/$GH_REPO/pulls/$PR" \
-              --jq 'select(.base.ref == "main" and (.head.ref | startswith("sync/upstream-")) and .head.repo.full_name == "rilesc555/sonora" and .user.login == "github-actions[bot]" and .state == "open")' \
-              | grep -q .
-            head=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .head.sha)
-            base=$(gh api "repos/$GH_REPO/pulls/$PR" --jq .base.sha)
-            # A conflicted PR has no merge ref, so this fails without publishing or merging.
-            git fetch origin "refs/pull/$PR/merge"
-            git checkout --detach FETCH_HEAD
-            test "$(git rev-parse HEAD^1)" = "$base"
-            test "$(git rev-parse HEAD^2)" = "$head"
-            echo "pr=$PR" >> "$GITHUB_OUTPUT"
-            echo "head=$head" >> "$GITHUB_OUTPUT"
-            echo "base=$base" >> "$GITHUB_OUTPUT"
+            bash scripts/fork-select-source.sh "$PR"
           fi
           base_version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)
           revision=$(git rev-list --count HEAD)

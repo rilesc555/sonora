@@ -6,11 +6,16 @@ and merges `sonorahq/sonora`'s `main`. Do not reset it to upstream or force-sync
 ## Updates
 
 - `fork-upstream.yml` checks upstream daily at 08:17 UTC. It opens one `sync/upstream-*` pull
-  request at a time. It never replaces the patched `main` branch.
+  request at a time. It retries an existing update on later runs unless its checks are already
+  active. It never replaces the patched `main` branch.
 - `fork-package.yml` checks the proposed merge with formatting, strict Clippy on Linux and
   Windows, the existing tests, and release builds for both platforms.
   Only a passing automated upstream PR is merged. If the
   head or base changes during the checks, the merge stops.
+- The source job waits up to three minutes for GitHub to prepare a current merge ref, and stops
+  immediately for a confirmed conflict. PR review runs use a separate concurrency group so
+  they cannot cancel the dispatched automatic merge. GitHub may ask for approval of a bot's
+  separate PR review run; the trusted dispatch on `main` does not depend on that approval.
 - A merge made with `GITHUB_TOKEN` does not trigger push workflows, so the sync run explicitly
   dispatches a new package run on `main`. Ordinary pushes to `main` also start the package run.
 - Only a passing build of `main` is signed and published. Pull requests have no signing key.
@@ -50,7 +55,8 @@ installer from a newer fork release.
 
 ## Failed updates
 
-An open upstream PR blocks later automatic updates. Inspect that PR and its Actions run.
+An open upstream PR blocks newer upstream PRs, but its checks are retried on the next sync.
+Inspect that PR and its Actions run if the same failure persists.
 If a dependency or build service failed, retry the workflow for the same PR:
 
 ```sh
