@@ -1,20 +1,26 @@
 # rilesc555's Sonora fork
 
 This fork adds Spotify episodes to mixed playlists. Its `main` branch keeps the fork changes
-and merges official stable release tags from `sonorahq/sonora`, not its development `main`.
-Do not reset the fork to upstream or force-sync it.
+and imports source changes from official stable releases of `sonorahq/sonora`, not its
+development `main`. Do not reset the fork to upstream or force-sync it.
 
 ## Updates
 
 - `fork-upstream.yml` checks GitHub's latest official release daily at 08:17 UTC. It rejects
   drafts, prereleases, and tags other than `vMAJOR.MINOR.PATCH`, then fetches the exact tag
-  commit. It opens a `sync/release-TAG-COMMIT` PR and retries that release's existing PR unless
-  its checks are already active. It never fetches upstream `main` as an update target.
+  commit. It applies the change from the last imported stable release as one fork-owned commit,
+  excluding `.github/workflows`. It opens a `sync/release-TAG-COMMIT` PR and retries that
+  release's existing PR unless its checks are active. It never uses upstream `main` as an
+  update target.
+- `packaging/fork-upstream.json` records the last imported official tag and commit. The sync
+  verifies both tags against the official repository and stops if the new release does not
+  follow the recorded one. If the fork already contains a later commit from that release's
+  history, the import starts after that commit instead of applying the same source twice.
 - `fork-package.yml` checks the proposed merge with formatting, strict Clippy on Linux and
   Windows, the existing tests, and release builds for both platforms.
-  Only a passing bot-created release PR is merged. The PR head must equal the official release
-  tag's commit. Development-head PRs are rejected even if dispatched manually. If the head or
-  base changes during the checks, the merge stops.
+  Only a passing bot-created release PR is merged. Its one update commit must start at the
+  current `main`, record the latest official tag and commit, and leave the fork workflows
+  unchanged. If the head or base changes during the checks, the merge stops.
 - The source job waits up to three minutes for GitHub to prepare a current merge ref, and stops
   immediately for a confirmed conflict. PR review runs use a separate concurrency group so
   they cannot cancel the dispatched automatic merge. GitHub may ask for approval of a bot's
@@ -67,16 +73,15 @@ If a dependency or build service failed, retry the workflow for the same PR:
 gh workflow run fork-package.yml --repo rilesc555/sonora --ref main -f pull_request=NUMBER
 ```
 
-For a merge conflict, prepare and review a manual merge of the exact release tag in a
-maintenance branch. Do not remove the podcast changes just to make the merge pass. Automatic
-release PRs must keep their head at the official tag; modified heads are not auto-merged.
-Manual fixes on the fork's `main` must still pass the package workflow before publication.
+For a source conflict, prepare and review a manual update in a maintenance branch. Keep the
+fork workflow files, preserve the podcast changes, and update `packaging/fork-upstream.json`
+to the exact official tag and commit. Manual updates use ordinary pull request checks and are
+not merged automatically. A manual merge to the fork's `main` must still pass the package
+workflow before publication.
 
 The fork followed development `main` before this release-only policy was introduced. Those
-earlier merges remain in history; changing the update channel does not discard existing
-code or downgrade the installed package. Later official releases will include those commits
-when upstream releases them. A rebuild strictly from a release plus selected fork patches is
-a separate migration, not an automatic reset.
+earlier merges remain in history. Source-only imports do not add later upstream commits to the
+fork's ancestry. The recorded tag and commit define the next stable-release change instead.
 
 Versions have the form `0.47.0.r123.gabcdef123456-7`: upstream version, source commit count,
 source commit, and package workflow run number. A new package does not install itself into a
