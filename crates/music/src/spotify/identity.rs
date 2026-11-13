@@ -16,7 +16,7 @@ pub(super) fn from_uri(uri: &str) -> Option<String> {
 }
 
 /// Restores the URI for playback, metadata, playlist edits, and Connect.
-pub(super) fn to_uri(id: &str) -> String {
+pub(crate) fn to_uri(id: &str) -> String {
     match id.strip_prefix(EPISODE_PREFIX) {
         Some(id) => format!("{EPISODE_URI}{id}"),
         None => format!("{TRACK_URI}{id}"),

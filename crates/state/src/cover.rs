@@ -153,7 +153,8 @@ impl Cover {
                         this.cache.insert(id.clone(), art.clone());
                         if this.item.as_deref() == Some(id.as_str()) {
                             this.large = Some(art.large);
-                            this.full = art.full.or(this.full.take());
+                            let kept = this.full.take();
+                            this.full = art.full.or(kept);
                             cx.notify();
                         }
                     }
