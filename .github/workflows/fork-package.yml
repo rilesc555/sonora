@@ -36,6 +36,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      actions: read
     outputs:
       sha: ${{ steps.source.outputs.sha }}
       version: ${{ steps.source.outputs.version }}
@@ -43,6 +44,8 @@ jobs:
       pr: ${{ steps.source.outputs.pr }}
       head: ${{ steps.source.outputs.head }}
       base: ${{ steps.source.outputs.base }}
+      artifact_run: ${{ steps.source.outputs.artifact_run }}
+      build_sha: ${{ steps.source.outputs.build_sha }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -53,6 +56,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PR: ${{ inputs.pull_request }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           if [[ -n "$PR" ]]; then
@@ -64,9 +68,14 @@ jobs:
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           echo "version=$base_version.r$revision.g$short" >> "$GITHUB_OUTPUT"
           echo "app_version=$base_version-rilesc555.r$revision.g$short" >> "$GITHUB_OUTPUT"
+          echo "build_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [[ "$EVENT" != pull_request && -z "$PR" ]]; then
+            bash scripts/fork-reuse-build.sh
+          fi
 
   build:
     needs: source
+    if: needs.source.outputs.artifact_run == ''
     runs-on: ubuntu-22.04
     env:
       RUSTC_WRAPPER: sccache
@@ -113,6 +122,7 @@ jobs:
 
   windows:
     needs: source
+    if: needs.source.outputs.artifact_run == ''
     runs-on: windows-latest
     env:
       RUSTC_WRAPPER: sccache
@@ -154,8 +164,23 @@ jobs:
         if: always()
         run: sccache --show-stats
 
-  merge:
+  record:
     needs: [source, build, windows]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: record the source after both platform builds pass
+        env:
+          SOURCE_SHA: ${{ needs.source.outputs.sha }}
+        run: jq -n --arg sha "$SOURCE_SHA" '{sha:$sha}' > source.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fork-source-${{ github.run_id }}
+          path: source.json
+          if-no-files-found: error
+          retention-days: 7
+
+  merge:
+    needs: [source, build, windows, record]
     if: github.event_name == 'workflow_dispatch' && needs.source.outputs.pr != ''
     runs-on: ubuntu-22.04
     permissions:
@@ -179,7 +204,12 @@ jobs:
 
   package:
     needs: [source, build, windows]
-    if: github.ref == 'refs/heads/main' && needs.source.outputs.pr == '' && github.event_name != 'pull_request'
+    if: >-
+      ${{ always() && !cancelled() && needs.source.result == 'success' &&
+          github.ref == 'refs/heads/main' && needs.source.outputs.pr == '' &&
+          github.event_name != 'pull_request' &&
+          (needs.source.outputs.artifact_run != '' ||
+           (needs.build.result == 'success' && needs.windows.result == 'success')) }}
     runs-on: ubuntu-22.04
     container: archlinux:base-devel
     defaults:
@@ -187,6 +217,7 @@ jobs:
         shell: bash
     permissions:
       contents: write
+      actions: read
     steps:
       - name: packaging dependencies
         run: |
@@ -198,11 +229,15 @@ jobs:
           ref: ${{ needs.source.outputs.sha }}
       - uses: actions/download-artifact@v4
         with:
-          name: fork-build-${{ github.run_id }}
+          name: fork-build-${{ needs.source.outputs.artifact_run || github.run_id }}
+          run-id: ${{ needs.source.outputs.artifact_run || github.run_id }}
+          github-token: ${{ github.token }}
           path: /tmp/fork-package
       - uses: actions/download-artifact@v4
         with:
-          name: fork-windows-${{ github.run_id }}
+          name: fork-windows-${{ needs.source.outputs.artifact_run || github.run_id }}
+          run-id: ${{ needs.source.outputs.artifact_run || github.run_id }}
+          github-token: ${{ github.token }}
           path: /tmp/fork-windows
       - name: assemble the Arch package without signing credentials
         env:
@@ -256,10 +291,12 @@ jobs:
           VERSION: ${{ needs.source.outputs.version }}
           SOURCE_SHA: ${{ needs.source.outputs.sha }}
           PKGREL: ${{ github.run_number }}
+          BUILD_SHA: ${{ needs.source.outputs.build_sha }}
+          ARTIFACT_RUN: ${{ needs.source.outputs.artifact_run || github.run_id }}
         run: |
           gh release create "fork-$VERSION-$PKGREL" --target "$SOURCE_SHA" \
             --title "Sonora fork $VERSION-$PKGREL" --latest=false \
-            --notes "Checked source: $SOURCE_SHA. Signed x86_64 Arch package and unsigned x64 Windows installer with Spotify episode support." \
+            --notes "Published source: $SOURCE_SHA. Checked build source: $BUILD_SHA. Build artifacts: https://github.com/$GH_REPO/actions/runs/$ARTIFACT_RUN. Signed x86_64 Arch package and unsigned x64 Windows installer with Spotify episode support." \
             public/arch/x86_64/*.pkg.tar.zst public/arch/x86_64/*.pkg.tar.zst.sig \
             public/arch/x86_64/signing-key.asc public/arch/x86_64/SHA256SUMS \
             /tmp/fork-windows/Sonora-Setup.exe
@@ -269,6 +306,7 @@ jobs:
 
   deploy:
     needs: package
+    if: ${{ !cancelled() && needs.package.result == 'success' }}
     runs-on: ubuntu-22.04
     permissions:
       pages: write

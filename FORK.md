@@ -27,7 +27,12 @@ development `main`. Do not reset the fork to upstream or force-sync it.
   separate PR review run; the trusted dispatch on `main` does not depend on that approval.
 - A merge made with `GITHUB_TOKEN` does not trigger push workflows, so the sync run explicitly
   dispatches a new package run on `main`. Ordinary pushes to `main` also start the package run.
-- Only a passing build of `main` is signed and published. Pull requests have no signing key.
+- Publication reuses a successful same-repository PR or trusted dispatch build when its entire
+  Git tree and workflow match `main`. Both platform artifacts and the source record must still
+  exist. Missing records, expired artifacts, or different trees cause a full build instead.
+  Reused binaries and the Windows installer keep their checked build version. Release notes
+  identify both the published commit and the original build commit and run.
+- Only checked source identical to `main` is signed and published. Pull requests have no signing key.
   A failed build, conflict, or deployment leaves the last published repository in place.
 - The build uses both `rust-cache` for Cargo dependencies and `sccache` with GitHub's cache
   backend for compiler results. Cache statistics are printed even when a build fails. Test
