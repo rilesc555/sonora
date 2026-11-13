@@ -32,35 +32,45 @@ jobs:
           release=$(bash scripts/fork-latest-release.sh)
           tag=$(jq -r .tag <<< "$release")
           upstream=$(jq -r .commit <<< "$release")
-          if git merge-base --is-ancestor "$upstream" HEAD; then
-            echo "The fork already contains official stable release $tag."
+          imported=$(jq -er .commit packaging/fork-upstream.json)
+          if [[ "$imported" == "$upstream" ]]; then
+            echo "The fork already imports official stable release $tag."
             exit 0
           fi
           branch="sync/release-$tag-${upstream:0:12}"
-          # Retry this exact release, never a development-head PR left from the old policy.
           existing=$(gh pr list --base main --head "$branch" --state open --json number \
             --jq '.[0].number // empty')
           if [[ -n "$existing" ]]; then
             number=$existing
+            title="check and merge release PR #$number"
+            active=$(gh run list --workflow fork-package.yml --event workflow_dispatch --limit 100 \
+              --json databaseId,displayTitle,status \
+              --jq ".[] | select(.displayTitle == \"$title\" and .status != \"completed\") | .databaseId")
+            if [[ -n "$active" ]]; then
+              echo "Checks for PR #$number are already queued or running."
+              exit 0
+            fi
+          fi
+
+          bash scripts/fork-prepare-release.sh "$tag" "$upstream" "$branch"
+          remote=$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')
+          if [[ -n "$remote" ]]; then
+            git push --force-with-lease="refs/heads/$branch:$remote" \
+              origin "HEAD:refs/heads/$branch"
+          else
+            git push origin "HEAD:refs/heads/$branch"
+          fi
+
+          if [[ -n "$existing" ]]; then
             echo "Retrying checks for stable release $tag in PR #$number."
           else
-            # This branch contains only the official tag, not the current development head.
-            git push origin "$upstream:refs/heads/$branch"
             url=$(gh pr create --base main --head "$branch" \
-              --title "chore: merge official release $tag" \
-              --body "$(printf '## Summary\n\n- merge official stable release %s while keeping the fork changes\n- run checks and release builds before automatic merge' "$tag")")
+              --title "chore: import official release $tag" \
+              --body "$(printf '## Summary\n\n- import source changes from official stable release %s\n- keep the fork workflows and podcast support' "$tag")")
             number=${url##*/}
             echo "$url"
           fi
           [[ "$number" =~ ^[0-9]+$ ]]
-          title="check and merge release PR #$number"
-          active=$(gh run list --workflow fork-package.yml --event workflow_dispatch --limit 100 \
-            --json databaseId,displayTitle,status \
-            --jq ".[] | select(.displayTitle == \"$title\" and .status != \"completed\") | .databaseId")
-          if [[ -n "$active" ]]; then
-            echo "Checks for PR #$number are already queued or running."
-            exit 0
-          fi
           # Dispatch trusted main explicitly. Bot PR events can need approval and must not be
           # the only path to checks and automatic merge.
           gh workflow run fork-package.yml --ref main -f "pull_request=$number"
