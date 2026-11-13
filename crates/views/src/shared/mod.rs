@@ -19,6 +19,7 @@ pub(crate) mod pins;
 pub(crate) mod playlist_editor;
 pub(crate) mod popups;
 pub(crate) mod shelves;
+pub(crate) mod soloist;
 pub(crate) mod steps;
 pub(crate) mod tag_editor;
 pub(crate) mod text;
@@ -28,6 +29,7 @@ pub(crate) mod tracks;
 pub(crate) mod transport;
 pub(crate) mod trouble;
 pub(crate) mod visualizer;
+pub(crate) mod volume;
 pub(crate) mod widevine;
 
 pub(crate) use ui::effects;
