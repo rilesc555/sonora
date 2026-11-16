@@ -1,12 +1,18 @@
 use std::cmp::Ordering;
 
 use gpui::SharedString;
-use music::Track;
+use music::{Arrival, Track};
 
 use super::TrackField;
+use crate::shared::blend::Joined;
 use crate::shared::text::{folded, holds};
 
-pub(super) fn compare(tracks: &[Track], field: TrackField, a: usize, b: usize) -> Ordering {
+pub(super) fn compare(
+    tracks: Joined<'_, Track>,
+    field: TrackField,
+    a: usize,
+    b: usize,
+) -> Ordering {
     let text =
         |index: usize, pick: fn(&Track) -> &str| tracks.get(index).map(pick).unwrap_or_default();
     let folded = |pick: fn(&Track) -> &str| folded(text(a, pick), text(b, pick));
@@ -33,7 +39,20 @@ pub(super) fn compare(tracks: &[Track], field: TrackField, a: usize, b: usize) -
     }
 }
 
-pub(super) fn group(tracks: &[Track], field: TrackField, row: usize) -> Option<SharedString> {
+/// Orders two rows of a list that comes in the order it was added, oldest first, so a
+/// descending sort puts the latest addition on top whichever end the provider lists it at.
+pub(super) fn by_arrival(arrival: Arrival, a: usize, b: usize) -> Ordering {
+    match arrival {
+        Arrival::OldestFirst => a.cmp(&b),
+        Arrival::NewestFirst => b.cmp(&a),
+    }
+}
+
+pub(super) fn group(
+    tracks: Joined<'_, Track>,
+    field: TrackField,
+    row: usize,
+) -> Option<SharedString> {
     let track = tracks.get(row)?;
 
     match field {
@@ -49,7 +68,7 @@ pub(super) fn group(tracks: &[Track], field: TrackField, row: usize) -> Option<S
     }
 }
 
-fn tags(tracks: &[Track], index: usize) -> &[String] {
+fn tags<'a>(tracks: Joined<'a, Track>, index: usize) -> &'a [String] {
     tracks
         .get(index)
         .map(|track| track.tags.as_slice())

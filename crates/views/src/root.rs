@@ -1,16 +1,16 @@
 use gpui::{AnyView, Context, Entity, MouseButton, NavigationDirection, Render, Task};
 use gpui::{App, Font, FontFallbacks, SharedString, StyleRefinement, font, prelude::*};
-use gpui::{Window, div};
+use gpui::{Window, deferred, div};
 use input::{
     CloseWindow, MinimizeWindow, NavigateBack, NavigateForward, OpenFilter, OpenSearch,
-    OpenSettings, Refresh, ShowMembers, ToggleFullscreen, ToggleLyrics, ToggleQueue,
-    ToggleWindowFullscreen, ZoomWindow,
+    OpenSettings, Refresh, ShowMembers, ToggleFullscreen, ToggleLyrics, TogglePowerbar,
+    ToggleQueue, ToggleWindowFullscreen, ZoomWindow,
 };
-use router::{Destination, NavigationEvent, Screen, back, forward, navigate};
+use router::{Destination, NavigationEvent, back, forward, navigate};
 use state::{
     ArtistDetail, Detail, GenreDetails, Genres, HistoryState, Home, Io, Library, LibraryState,
     Network, Playback, Profile, Queue, Reconnected, SYSTEM_FONT, Scan, Search, Session,
-    SessionEvent, SessionState, Shelf, SideTab, SongDetail, Sonora,
+    SessionState, Shelf, SideTab, SongDetail, Sonora,
 };
 #[cfg(any(target_os = "linux", target_os = "freebsd"))]
 use ui::WindowFrame;
@@ -20,13 +20,20 @@ use ui::{
 };
 
 use crate::chrome::{
-    Busy, JamInvite, ThemeInvite, TitleBar, TitleBarEvent, TitleBarOptions, Toolbar, Tooled,
+    Busy, JamCode, JamInvite, JamJoin, PlayerBar, SessionCode, SessionJoin, ThemeInvite, TitleBar,
+    TitleBarEvent, TitleBarOptions, ToastStack, Toolbar, Tooled,
 };
 use crate::screens::search::SearchView;
 use crate::screens::settings::SettingsHeader;
 use crate::shared::ambient::{self, Ambient};
+use crate::shared::confirm::Confirm;
+use crate::shared::playlist_editor::PlaylistEditor;
+use crate::shared::powerbar::Powerbar;
+use crate::shared::soloist::SoloistSetup;
+use crate::shared::tag_editor::TagEditor;
 use crate::shared::tracks::{LIBRARY_COLUMNS, album_columns};
-use crate::shared::transport::{CoverAway, CoverFade};
+use crate::shared::transport::{CoverAway, CoverFade, ShellSwap};
+use crate::shared::widevine::WidevinePrompt;
 use crate::shells::Shell;
 use crate::shells::workspace::Workspace;
 use crate::{
@@ -39,12 +46,14 @@ use crate::{
 const SHELL_ZOOM: f32 = 0.03;
 /// How close the opening zoom comes to its end before it counts as landed.
 const SHELL_ZOOM_REST: f32 = 1e-3;
+/// The paint layer toasts take. Dialogs paint at 0 and menus at 1, so a toast shows over an
+/// open dialog and a menu opened after it still shows over the toast.
+const TOAST_LAYER: usize = 1;
 
 struct Screens {
     home: Entity<HomeView>,
     history: Entity<HistoryView>,
     library: Entity<LibraryView>,
-    local: Entity<LibraryView>,
     artist: Option<Entity<ArtistView>>,
     artist_detail: Option<Entity<ArtistDetail>>,
     album: Option<Entity<DetailView>>,
@@ -72,6 +81,50 @@ struct Screens {
 struct Shells {
     workspace: Entity<Workspace>,
     fullscreen: Entity<FullscreenView>,
+}
+
+/// The dialogs a track, playback or account action raises. The root draws them over whichever
+/// shell is up, so one raised from the fullscreen player opens there.
+struct Dialogs {
+    playlist_editor: Entity<PlaylistEditor>,
+    tag_editor: Entity<TagEditor>,
+    confirm: Entity<Confirm>,
+    widevine: Entity<WidevinePrompt>,
+    soloist: Entity<SoloistSetup>,
+    jam_join: Entity<JamJoin>,
+    jam_code: Entity<JamCode>,
+    session_join: Entity<SessionJoin>,
+    session_code: Entity<SessionCode>,
+}
+
+impl Dialogs {
+    fn new(cx: &mut App) -> Self {
+        Self {
+            playlist_editor: PlaylistEditor::entity(cx),
+            tag_editor: TagEditor::entity(cx),
+            confirm: Confirm::entity(cx),
+            widevine: cx.new(WidevinePrompt::new),
+            soloist: cx.new(SoloistSetup::new),
+            jam_join: cx.new(JamJoin::new),
+            jam_code: cx.new(JamCode::new),
+            session_join: cx.new(SessionJoin::new),
+            session_code: cx.new(SessionCode::new),
+        }
+    }
+
+    fn views(&self) -> [AnyView; 9] {
+        [
+            self.playlist_editor.clone().into(),
+            self.tag_editor.clone().into(),
+            self.confirm.clone().into(),
+            self.widevine.clone().into(),
+            self.soloist.clone().into(),
+            self.jam_join.clone().into(),
+            self.jam_code.clone().into(),
+            self.session_join.clone().into(),
+            self.session_code.clone().into(),
+        ]
+    }
 }
 
 /// Which shell fills the window.
@@ -109,6 +162,11 @@ pub struct Root {
     jam_invite: Entity<JamInvite>,
     /// The question before a linked theme is installed, drawn over whichever shell is up.
     theme_invite: Entity<ThemeInvite>,
+    /// The quick search, drawn over whichever shell is up so it opens in fullscreen too.
+    powerbar: Entity<Powerbar>,
+    dialogs: Dialogs,
+    /// The toasts, hung above the player bar or the fullscreen dock, whichever shell is up.
+    toasts: Entity<ToastStack>,
     shells: Shells,
     view: RootView,
     signing_in: bool,
@@ -176,25 +234,6 @@ impl Root {
         })
         .detach();
 
-        cx.subscribe(&session, |_, session, event, cx| {
-            if matches!(event, SessionEvent::SignedIn) && !session.read(cx).authenticated() {
-                let settings = Sonora::global(cx).settings.clone();
-                let startup = settings.read(cx).startup().to_owned();
-                if Screen::from_id(&startup).is_some_and(Screen::needs_account) {
-                    settings.update(cx, |settings, cx| {
-                        settings.set_startup(Screen::Home.id(), cx);
-                    });
-                }
-                if matches!(
-                    router::trail(cx).read(cx).current(),
-                    Destination::Library(_)
-                ) {
-                    navigate(Destination::Home, cx);
-                }
-            }
-        })
-        .detach();
-
         let login = cx.new(|cx| LoginView::new(session.clone(), cx));
 
         let navigation = router::trail(cx);
@@ -210,18 +249,8 @@ impl Root {
         })
         .detach();
 
-        let library_view = cx.new(|cx| {
-            LibraryView::new(
-                Shelf::Streaming,
-                library.clone(),
-                playback.clone(),
-                window,
-                cx,
-            )
-        });
-        let local_view = cx.new(|cx| {
-            LibraryView::new(Shelf::Local, library.clone(), playback.clone(), window, cx)
-        });
+        let library_view =
+            cx.new(|cx| LibraryView::new(library.clone(), playback.clone(), window, cx));
 
         let io = Io::global(cx);
         let home_state = cx.new(|cx| Home::new(library.clone(), session.clone(), io.clone(), cx));
@@ -232,6 +261,9 @@ impl Root {
         let queries = cx.new(|cx| Search::new(session.clone(), library.clone(), io.clone(), cx));
         let suggestions =
             cx.new(|cx| Search::new(session.clone(), library.clone(), io.clone(), cx));
+        // The quick search asks on its own, so typing in it leaves the search screen as it was.
+        let quick = cx.new(|cx| Search::new(session.clone(), library.clone(), io.clone(), cx));
+        let powerbar = Powerbar::entity(quick, playback.clone(), cx);
         let genres = cx.new(|cx| Genres::new(session.clone(), io.clone(), cx));
         let search = cx.new(|cx| {
             SearchView::new(
@@ -362,7 +394,6 @@ impl Root {
                 home,
                 history,
                 library: library_view,
-                local: local_view,
                 artist: None,
                 artist_detail: None,
                 album: None,
@@ -386,6 +417,9 @@ impl Root {
             ambient,
             jam_invite: cx.new(JamInvite::new),
             theme_invite: cx.new(ThemeInvite::new),
+            powerbar,
+            dialogs: Dialogs::new(cx),
+            toasts: cx.new(ToastStack::new),
             background: None,
             font: None,
             #[cfg(target_os = "windows")]
@@ -645,6 +679,7 @@ impl Root {
     fn loading(&self, destination: &Destination, cx: &App) -> Option<Busy> {
         let library = Sonora::global(cx).library.clone();
         let shelf = |shelf: Shelf| -> Busy {
+            let library = library.clone();
             Box::new(move |cx| matches!(library.read(cx).state(shelf), LibraryState::Loading))
         };
         Some(match destination {
@@ -656,11 +691,11 @@ impl Root {
                 let history = Sonora::global(cx).history.clone();
                 Box::new(move |cx| matches!(history.read(cx).state(), HistoryState::Loading))
             }
-            Destination::Library(_) => shelf(Shelf::Streaming),
-            Destination::Local(_) => {
+            Destination::Library(_) => {
                 let session = Sonora::global(cx).session.clone();
+                let streaming = shelf(Shelf::Streaming);
                 let local = shelf(Shelf::Local);
-                Box::new(move |cx| session.read(cx).scanning() || local(cx))
+                Box::new(move |cx| session.read(cx).scanning() || streaming(cx) || local(cx))
             }
             Destination::Album(_) => {
                 let detail = self.screens.album_detail.clone()?;
@@ -702,12 +737,10 @@ impl Root {
                 let history = Sonora::global(cx).history.clone();
                 history.update(cx, |history, cx| history.reload(cx));
             }
-            Destination::Library(_) => {
-                library.update(cx, |library, cx| library.reload(Shelf::Streaming, cx))
-            }
-            Destination::Local(_) => {
-                library.update(cx, |library, cx| library.reload(Shelf::Local, cx))
-            }
+            Destination::Library(_) => library.update(cx, |library, cx| {
+                library.reload(Shelf::Streaming, cx);
+                library.reload(Shelf::Local, cx);
+            }),
             Destination::Album(id) => {
                 if let Some(detail) = self.screens.album_detail.clone() {
                     detail.update(cx, |detail, cx| detail.refresh(cx));
@@ -763,6 +796,12 @@ impl Root {
                 .update(cx, |workspace, cx| workspace.finish_transition(cx));
             self.show(destination, cx);
             if moving && !cx.reduce_motion() {
+                // Set here rather than in render, so the cached player bar hears of it before
+                // the first frame of the move draws.
+                cx.set_global(match next {
+                    RootView::Fullscreen => ShellSwap::Opening,
+                    RootView::Workspace => ShellSwap::Closing,
+                });
                 match next {
                     RootView::Fullscreen => self.shell_zoom = Some(Sprung::at(1.)),
                     RootView::Workspace => {
@@ -901,7 +940,7 @@ impl Root {
             self.screens.settings_open = open;
             self.screens
                 .settings
-                .update(cx, |view, _| view.set_open(open));
+                .update(cx, |view, cx| view.set_open(open, cx));
         }
         if let Destination::Settings(page) = destination {
             let page = *page;
@@ -954,12 +993,6 @@ impl Root {
                 history.update(cx, |history, cx| history.refresh(cx));
                 toolbar = Some(history.read(cx).toolbar());
                 history.into()
-            }
-            Destination::Local(tab) => {
-                let local = self.screens.local.clone();
-                local.update(cx, |local, cx| local.select(tab.into(), cx));
-                toolbar = Some(local.read(cx).toolbar());
-                local.into()
             }
             Destination::Library(tab) => {
                 self.screens
@@ -1113,8 +1146,11 @@ impl Render for Root {
         self.follow_os_fullscreen(window, cx);
 
         let options = match show_sign_in {
+            // The sign-in screen runs under the bar, so the bar keeps only the window controls
+            // and its drag area over it.
             true => TitleBarOptions {
                 border: false,
+                transparent: true,
                 ..TitleBarOptions::default()
             },
             false => self.options(cx),
@@ -1224,12 +1260,27 @@ impl Render for Root {
         if cx.try_global::<CoverFade>().is_none_or(|was| was.0 != fade) {
             cx.set_global(CoverFade(fade));
         }
+        // The fullscreen button swaps in place for the whole move, the workspace's entrance
+        // included, since that scrim would otherwise dim the player bar's button once it is back.
+        let swap = match self.view {
+            RootView::Fullscreen if zooming > 0. => ShellSwap::Opening,
+            RootView::Workspace if left.is_some() || hidden > 0. => ShellSwap::Closing,
+            _ => ShellSwap::Settled,
+        };
+        if cx.try_global::<ShellSwap>().is_none_or(|was| *was != swap) {
+            cx.set_global(swap);
+        }
         let viewport = window.viewport_size();
         let reach = f32::from(viewport.width.max(viewport.height));
         let zoom = (zooming * SHELL_ZOOM * reach / 2. >= 0.5).then_some(1. - SHELL_ZOOM * zooming);
         let shell = match self.view {
             RootView::Workspace => self.shells.workspace.clone().into_any_element(),
             RootView::Fullscreen => self.shells.fullscreen.clone().into_any_element(),
+        };
+        // How far above the bottom of the window the toasts hang.
+        let floor = match self.view {
+            RootView::Workspace => PlayerBar::height(window, cx),
+            RootView::Fullscreen => FullscreenView::dock_height(cx),
         };
         // While fullscreen opens, the workspace it leaves fades out under it, and nothing in it
         // answers the pointer.
@@ -1283,8 +1334,21 @@ impl Render for Root {
                         .child(self.shells.fullscreen.clone()),
                 )
             })
+            // Deferred above the dialogs, which are deferred too, so a toast raised while one is
+            // open shows over it and its backdrop.
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(floor)
+                    .child(deferred(self.toasts.clone()).with_priority(TOAST_LAYER)),
+            )
+            .children(self.dialogs.views())
             .child(self.jam_invite.clone())
-            .child(self.theme_invite.clone());
+            .child(self.theme_invite.clone())
+            .child(self.powerbar.clone());
 
         let root = div()
             .relative()
@@ -1350,11 +1414,21 @@ impl Render for Root {
             .on_action(
                 cx.listener(|this, _: &ToggleLyrics, _, cx| this.show_side(SideTab::Lyrics, cx)),
             )
+            .on_action(cx.listener(|this, _: &TogglePowerbar, window, cx| {
+                // The sign-in screen stands in for every shell, so there is nothing to search.
+                if !this.signing_in {
+                    Powerbar::toggle(window, cx);
+                }
+            }))
             .on_action(
                 cx.listener(|this, _: &ShowMembers, _, cx| this.reveal_side(SideTab::Members, cx)),
             )
             // The ambient background sits behind everything, title bar included.
             .when(ambient, |this| this.child(self.ambient.clone()))
+            // The sign-in screen fills the whole window, under the bar.
+            .when(show_sign_in, |this| {
+                this.child(div().absolute().inset_0().child(self.login.clone()))
+            })
             // The bar only changes when it is told to, so a frame drawn for the lyrics or the
             // progress bar replays it rather than building it again.
             .child(
@@ -1365,11 +1439,7 @@ impl Render for Root {
                         .flex_none(),
                 ),
             )
-            .when_else(
-                show_sign_in,
-                |this| this.child(div().flex().flex_1().min_h_0().child(self.login.clone())),
-                |this| this.child(shell),
-            );
+            .when(!show_sign_in, |this| this.child(shell));
         // A closed menu or dialog fades out here, over everything else in the window.
         let root = root.child(ui::lingers());
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]

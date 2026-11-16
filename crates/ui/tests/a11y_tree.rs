@@ -39,8 +39,9 @@ use gpui::{
     div,
 };
 use ui::{
-    Button, Card, Checkbox, Glowing as _, Input, OptionCard, OtpInput, Radio, RangeScrubber,
-    RangeState, Scrubber, ScrubberState, Theme, Toast,
+    Button, Card, Checkbox, DraggedPin, Field, Form, Glowing as _, Input, OptionCard, OtpInput,
+    Pin, PinKind, Pinnable as _, Radio, RangeScrubber, RangeState, Scrubber, ScrubberState, Spot,
+    Theme, Toast,
 };
 
 /// Formats what the frame builder would put in the tree for `element`.
@@ -310,6 +311,49 @@ async fn toast_announces_status_with_message(cx: &mut TestAppContext) {
     assert!(
         lines.iter().any(|line| line.contains("Playlist saved")),
         "toast exposes no accessible name for its message, screen readers announce nothing: {lines:?}"
+    );
+}
+
+#[gpui::test]
+async fn form_reads_as_a_named_form(cx: &mut TestAppContext) {
+    let lines = open_probe(cx, |window, cx| {
+        let field = cx.new(|cx| Input::new("common-search", cx));
+        let element = Form::new("sign-in")
+            .name("Sign in")
+            .field(Field::new(&field, cx))
+            .render(window, cx)
+            .into_element();
+        snapshot("form", &element)
+    });
+    let lines = rendered(&lines, "form");
+    assert!(
+        lines.iter().any(|line| line.contains("role=Form")),
+        "form exposes no Role::Form, screen readers cannot tell its fields belong together: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("Sign in")),
+        "form exposes no accessible name: {lines:?}"
+    );
+}
+
+#[gpui::test]
+async fn labelled_field_reads_as_a_group_named_for_its_label(cx: &mut TestAppContext) {
+    let lines = open_probe(cx, |window, cx| {
+        let control = cx.new(|cx| Input::new("common-search", cx));
+        let element = Field::new(&control, cx)
+            .label("Server address")
+            .render(window, cx)
+            .into_element();
+        snapshot("field", &element)
+    });
+    let lines = rendered(&lines, "field");
+    assert!(
+        lines.iter().any(|line| line.contains("role=Group")),
+        "labelled field exposes no Role::Group, its label never reaches screen readers: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("Server address")),
+        "labelled field is not named for its label: {lines:?}"
     );
 }
 
@@ -697,5 +741,44 @@ async fn glowed_row_keeps_its_role_and_name(cx: &mut TestAppContext) {
     assert!(
         lines.iter().any(|line| line.contains("name=Some(\"Ada\")")),
         "a row that fades its hover loses its name: {lines:?}"
+    );
+}
+
+#[gpui::test]
+async fn movable_row_keeps_its_role_name_and_place(cx: &mut TestAppContext) {
+    let lines = open_probe(cx, |_, _| {
+        // the wiring a table row takes on when its rows can be dragged into a new order
+        let element = div()
+            .id(("row", 2_usize))
+            .role(Role::Row)
+            .aria_label("Ada")
+            .aria_position_in_set(3)
+            .aria_size_of_set(5)
+            .pin_from(Pin::new(PinKind::Song, "ada", "Ada"), Spot::new("rows", 2))
+            .on_drag_move(|_: &gpui::DragMoveEvent<DraggedPin>, _, _| {})
+            .on_drop(|_: &DraggedPin, _, _| {});
+        let mut node = Node::new(Role::Row);
+        element.write_a11y_info(&mut node);
+        format!(
+            "{} place={:?} of={:?}",
+            snapshot("movable-row", &element),
+            node.position_in_set(),
+            node.size_of_set()
+        )
+    });
+    let lines = rendered(&lines, "movable-row");
+    assert!(
+        lines.iter().any(|line| line.contains("role=Row")),
+        "a row that can be dragged into a new order drops out of the tree: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("name=Some(\"Ada\")")),
+        "a row that can be dragged into a new order loses its name: {lines:?}"
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("place=Some(3) of=Some(5)")),
+        "a row that can be dragged into a new order loses its place in the list: {lines:?}"
     );
 }
