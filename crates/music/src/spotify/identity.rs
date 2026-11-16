@@ -6,7 +6,7 @@ const TRACK_URI: &str = "spotify:track:";
 const EPISODE_URI: &str = "spotify:episode:";
 
 /// Keeps existing song ids unchanged and gives episodes a separate namespace.
-pub(super) fn from_uri(uri: &str) -> Option<String> {
+pub(crate) fn from_uri(uri: &str) -> Option<String> {
     if let Some(id) = uri.strip_prefix(EPISODE_URI).filter(|id| !id.is_empty()) {
         return Some(format!("{EPISODE_PREFIX}{id}"));
     }

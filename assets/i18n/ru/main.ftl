@@ -10,7 +10,7 @@ common-not-available = Нет данных
 common-cancel = Отмена
 common-save = Сохранить
 common-delete = Удалить
-common-play = Воспроизвести
+common-play = Играть
 common-more = Ещё
 common-previous = Назад
 common-next = Вперёд
@@ -23,7 +23,9 @@ nav-history = История
 nav-home = Главная
 nav-search = Поиск
 nav-library = Моя медиатека
+sidebar-library = Медиатека
 nav-settings = Настройки
+account-manage = Управление аккаунтами
 nav-songs = Треки
 nav-albums = Альбомы
 nav-playlists = Плейлисты
@@ -76,7 +78,7 @@ app-zoom = Изменить масштаб
 
 # tray menu
 tray-show = Показать Sonora
-tray-play = Воспроизвести
+tray-play = Играть
 tray-pause = Пауза
 
 # table columns
@@ -128,11 +130,11 @@ menu-delete-track-files = Удалить файлы треков ({ $count })
 menu-download = Скачать
 menu-remove-download = Удалить загрузку
 menu-downloading = Скачивается. Щёлкните для остановки
-menu-play-next = Воспроизвести следующим
+menu-play-next = Играть следующим
 menu-play-tracks-next = { $count ->
-    [one] Воспроизвести { $count } трек следующим
-    [few] Воспроизвести { $count } трека следующими
-   *[other] Воспроизвести { $count } треков следующими
+    [one] Играть { $count } трек следующим
+    [few] Играть { $count } трека следующими
+   *[other] Играть { $count } треков следующими
 }
 menu-add-to-queue = Добавить в очередь
 menu-add-tracks-to-queue = { $count ->
@@ -140,11 +142,11 @@ menu-add-tracks-to-queue = { $count ->
     [few] Добавить { $count } трека в очередь
    *[other] Добавить { $count } треков в очередь
 }
-menu-play-last = Воспроизвести в конце
+menu-play-last = Играть в конце
 menu-play-tracks-last = { $count ->
-    [one] Воспроизвести { $count } трек в конце
-    [few] Воспроизвести { $count } трека в конце
-   *[other] Воспроизвести { $count } треков в конце
+    [one] Играть { $count } трек в конце
+    [few] Играть { $count } трека в конце
+   *[other] Играть { $count } треков в конце
 }
 menu-song-radio = Радио по треку
 menu-go-to-album = Перейти к альбому
@@ -163,7 +165,7 @@ menu-add-playlist-to-library = Добавить в медиатеку
 menu-remove-playlist-from-library = Удалить из медиатеки
 menu-make-playlist-public = Сделать публичным
 menu-make-playlist-private = Сделать приватным
-menu-play-artist = Воспроизвести исполнителя
+menu-play-artist = Играть исполнителя
 
 # playlist editor
 playlist-name-placeholder = Название плейлиста
@@ -310,10 +312,11 @@ filter-reset = Сбросить фильтры
 filter-duration = Длительность
 filter-year = Год
 filter-hide-explicit = Скрыть с ненормативной лексикой
-filter-playable = Только доступные
 filter-favorites = Только избранное
 filter-downloaded = Скачанное
 filter-owned = Ваши
+filter-local-only = Только локальные
+filter-streaming-only = Только стриминг
 
 # view
 view-list = Список
@@ -322,6 +325,7 @@ view-cards = Карточки
 # toolbar
 tool-sort = Сортировка
 tool-filters = Фильтры
+tool-account = Аккаунт
 
 # login
 login-signed-out = Войдите, чтобы загрузить медиатеку
@@ -334,7 +338,7 @@ login-problem-credentials = Сохранённая сессия Spotify боль
 login-problem-network = Sonora не смогла связаться с музыкальным сервисом. Проверьте интернет-соединение и попробуйте снова.
 login-problem-cancelled = Вы закрыли страницу браузера, не подтвердив вход. Начните заново.
 login-problem-refused = Spotify отклонил вход. Подождите немного и попробуйте снова.
-login-problem-premium = Sonora воспроизводит музыку через Spotify Premium, а у этого аккаунта его нет. Войдите в аккаунт с Premium, чтобы продолжить.
+login-problem-premium = Sonora играет музыку через Spotify Premium, а у этого аккаунта его нет. Войдите в аккаунт с Premium, чтобы продолжить.
 login-sign-in = Войти через { $provider }
 login-connect-cookies = Вставить cookie вручную
 login-cookie-open = Открыть { $provider }
@@ -486,6 +490,7 @@ song-genres = Жанры
 song-language = Язык
 song-content = Контент
 song-explicit = Ненормативная лексика
+song-local = Локальный файл
 song-clean = Без ограничений
 artist-about = Об исполнителе
 artist-about-fallback = Послушайте популярные треки и релизы исполнителя.
@@ -668,7 +673,6 @@ settings-font-detail = Базовый размер текста, остальн�
 settings-font-value = { $size } px
 settings-startup = Показывать при запуске
 settings-startup-detail = Экран, который Sonora открывает при старте
-settings-startup-no-guest = Недоступно в гостевом режиме
 settings-entries = Разделы боковой панели
 settings-entries-detail = Разделы, которые видны в боковой панели
 settings-entries-pick = Выбрать разделы
@@ -755,7 +759,7 @@ settings-cache-clear = Очистить
 settings-downloads-used = Занято
 settings-downloads-used-detail = Сколько места на этом компьютере занимают скачанные треки
 settings-offline-mode = Офлайн-режим
-settings-offline-mode-detail = Показывать и воспроизводить только скачанное
+settings-offline-mode-detail = Показывать и включать только скачанное
 settings-downloads-remove = Удалить всё
 settings-size-gb = { $size } ГБ
 settings-size-mb = { $size } МБ
@@ -862,7 +866,6 @@ soloist-continue = Продолжить
 soloist-pair-step-open = Откройте Spotify на телефоне или компьютере в этой сети
 soloist-pair-step-play = Включите там любую песню
 soloist-pair-step-pick = Откройте список устройств и выберите { $device }
-soloist-pair-waiting = Ждём Spotify…
 soloist-pair-firewall = Не появляется? Файрвол на этом компьютере должен пропускать входящие UDP 5353 и TCP { $port }.
 soloist-back = Назад
 soloist-problem-download = Не удалось скачать Soloist
@@ -1120,6 +1123,7 @@ settings-local-folder-empty = Не настроено
 settings-choose-folder = Выбрать папку…
 settings-add-folder = Добавить папку
 settings-remove-folder = Удалить папку
+settings-open-folder = Открыть папку
 settings-rescan = Пересканировать
 settings-scan-walking = Сканирую…
 settings-scan-progress = { $percent }%
@@ -1222,7 +1226,7 @@ toast-sleep-ended = Таймер сна сработал
 toast-radio-failed = Не удалось запустить радио по { $name }
 toast-similar-failed = Не удалось найти треки, похожие на { $name }
 toast-open-failed = Не удалось открыть { $name }
-toast-open-unsupported = Sonora не может воспроизвести { $name }
+toast-open-unsupported = Sonora не может включить { $name }
 toast-open-all-failed = { $count ->
     [one] Не удалось открыть { $count } файл
     [few] Не удалось открыть { $count } файла
@@ -1238,8 +1242,8 @@ toast-soloist-ready = Spotify теперь играет через Soloist
 toast-soloist-remove-failed = Не удалось удалить Soloist
 toast-sign-in-to-play = { $name } отдаёт музыку только тем, кто вошёл в аккаунт
 toast-restore-failed = Не удалось снова войти в { $name }, Sonora продолжила работу без него
-toast-track-unplayable = Не удалось воспроизвести { $name }
-toast-playback-stopped = Воспроизведение остановлено: несколько треков подряд не удалось воспроизвести
+toast-track-unplayable = Не удалось включить { $name }
+toast-playback-stopped = Воспроизведение остановлено: несколько треков подряд не удалось включить
 toast-widevine-failed = Ошибка воспроизведения
 toast-widevine-borrowed = Попробуйте обновить Widevine
 toast-open-settings = Настройки
@@ -1393,7 +1397,10 @@ trouble-offline = Нет соединения
 trouble-offline-detail = Проверьте подключение к интернету и попробуйте снова.
 trouble-not-loaded = Не удалось загрузить
 trouble-retry = Повторить
-toast-offline = Нет соединения. Ничего не будет воспроизводиться, пока оно не вернётся.
+trouble-busy = Сервис перегружен
+trouble-busy-detail = Слишком много запросов сразу. Подождите минуту и попробуйте снова.
+trouble-failed-detail = Что-то пошло не так на стороне сервиса. Попробуйте ещё раз чуть позже.
+toast-offline = Нет соединения. Ничего не будет играть, пока оно не вернётся.
 toast-offline-unsupported = { $name } играет скачанное только онлайн.
 toast-offline-mode = Вы офлайн. Перейдите в онлайн, чтобы слушать эту песню.
 offline-title = Вы офлайн.
