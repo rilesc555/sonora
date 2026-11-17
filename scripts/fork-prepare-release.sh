@@ -8,6 +8,20 @@ branch=${3:?pass the update branch}
 marker=packaging/fork-upstream.json
 official=https://github.com/sonorahq/sonora.git
 
+# These documents belong to upstream. Keep fork notes in FORK.md instead.
+upstream_owned=(
+  CHANGELOG.md
+  CONTRIBUTING.md
+  COPYING
+  PRIVACY.md
+  README.md
+  THIRD-PARTY.md
+)
+source_paths=(. ':(exclude).github/workflows/**')
+for path in "${upstream_owned[@]}"; do
+  source_paths+=(":(exclude)$path")
+done
+
 [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
 [[ "$upstream" =~ ^[0-9a-f]{40}$ ]]
 [[ "$branch" == "sync/release-$tag-${upstream:0:12}" ]]
@@ -36,6 +50,7 @@ fi
 base=$(git rev-parse HEAD)
 git switch -C "$branch" "$base"
 
+apply_from=$upstream
 if ! git merge-base --is-ancestor "$upstream" "$base"; then
   common=$(git merge-base "$base" "$upstream")
   if git merge-base --is-ancestor "$base_commit" "$common"; then
@@ -46,15 +61,20 @@ if ! git merge-base --is-ancestor "$upstream" "$base"; then
     echo "::error::The fork and recorded release have incompatible upstream histories."
     exit 1
   fi
-  temporary=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
-  patch=$(mktemp "$temporary/sonora-release.XXXXXX.patch")
-  trap 'rm -f "$patch"' EXIT
-  git diff --binary --full-index --no-renames "$apply_from" "$upstream" -- \
-    . ':(exclude).github/workflows/**' > "$patch"
-  if ! git apply --3way --index --quiet "$patch"; then
-    echo "::error::Official release $tag conflicts with fork source. Prepare a manual maintenance update."
-    exit 1
-  fi
+fi
+
+temporary=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
+patch=$(mktemp "$temporary/sonora-release.XXXXXX.patch")
+trap 'rm -f "$patch"' EXIT
+git diff --binary --full-index --no-renames "$apply_from" "$upstream" -- \
+  "${source_paths[@]}" > "$patch"
+# Diff these files from the fork, not the previous release, to take upstream exactly.
+git diff --binary --full-index --no-renames "$base" "$upstream" -- \
+  "${upstream_owned[@]}" >> "$patch"
+if [[ -s "$patch" ]] && ! git apply --3way --index --quiet "$patch"; then
+  git diff --name-only --diff-filter=U
+  echo "::error::Official release $tag conflicts with fork source. Prepare a manual maintenance update."
+  exit 1
 fi
 
 if ! git diff --cached --quiet "$base" -- .github/workflows; then

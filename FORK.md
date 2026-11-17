@@ -12,6 +12,10 @@ development `main`. Do not reset the fork to upstream or force-sync it.
   excluding `.github/workflows`. It opens a `sync/release-TAG-COMMIT` PR and retries that
   release's existing PR unless its checks are active. It never uses upstream `main` as an
   update target.
+- Each import takes `CHANGELOG.md`, `CONTRIBUTING.md`, `COPYING`, `PRIVACY.md`, `README.md`,
+  and `THIRD-PARTY.md` exactly from the official release, including file deletions. Keep fork
+  notes here, not in those files. Other files still use a three-way merge. Source conflicts
+  stop the import; the sync does not replace fork source, packaging, or workflows with upstream.
 - `packaging/fork-upstream.json` records the last imported official tag and commit. The sync
   verifies both tags against the official repository and stops if the new release does not
   follow the recorded one. If the fork already contains a later commit from that release's
@@ -66,6 +70,17 @@ The Windows installer has no code signature.
 Download `Sonora-Setup.exe` from this fork's newest `fork-*` release and run it to install or
 update. Fork builds do not check for upstream updates. Install later Windows builds with the
 installer from a newer fork release.
+
+## Fork changes
+
+These notes were previously in the upstream changelog:
+
+- Play Spotify podcast episodes and songs together in playlists, with queue and seek controls.
+- Keep Spotify podcast episodes when synchronizing queues and reordering mixed playlists.
+- Show Spotify episode covers at their largest available size, including in fullscreen when
+  the queue contains an old thumbnail.
+- Omit empty Spotify episode entries instead of showing blank rows with a zero length.
+- Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
 
 ## Failed updates
 
