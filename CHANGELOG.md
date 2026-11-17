@@ -7,9 +7,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.50.1] - 2026-11-17
+
+### Added
+
+- Create Navidrome smart playlists and edit their rules from the playlists menu.
+- The quick search marks its first result as the one Enter acts on. Press Up off it, or Enter before results arrive, to open the search page for what you typed.
+- On Windows, the taskbar hover preview and Alt+Tab show the song and artist that are playing.
+- Turn off the playback progress shown on the Sonora taskbar button on Windows in Settings, to keep just the app icon.
+- Sort songs, albums and artists from Navidrome, Subsonic or your local files by the day you liked them, from the sort menu or the new Date liked column.
+
 ### Fixed
 
-- Keep Spotify podcast episodes when synchronizing queues and reordering mixed playlists.
+- The account menu no longer lists YouTube Music when you are signed in elsewhere and only used guest mode before. Guest mode shows there under its own name while you use it.
+- Clicking outside a text field takes the cursor out of it, so typing stops there.
+- The Cut, Copy, Paste and Select all menu of the quick search field is drawn at the usual size.
+- Moving through a track list with the arrow keys keeps the selected row above the player bar.
+- The cover no longer stutters as it flies into or out of the fullscreen player, most noticeably on Macs.
+- A local album shows the cover.jpg in its folder as its art, even when its first track has a different cover embedded.
+- Apple Music no longer lists an album whose songs were all removed from your library as a blank album with no artist or cover.
+- Long Opus and Ogg files from Navidrome, Subsonic or Jellyfin start playing right away instead of after the whole file has downloaded.
+- Sorting your Apple Music songs by Date added puts your latest additions first instead of ordering them by title.
+- Create a local playlist again while signed in to a streaming service, by picking Local files in the Create playlist dialog.
+- Creating a playlist on Apple Music no longer fails with an error when Apple leaves the new playlist out of its answer.
+- The Korean translation is complete, so no screen falls back to English any more.
 
 ## [0.50.0] - 2026-11-16
 
@@ -201,8 +222,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
-- Play Spotify podcast episodes and songs together in playlists, with queue and seek controls.
 - Drag the playing song from the player bar onto a playlist, Pinned or the queue.
 - Play directly to hardware on macOS. Every output device is listed a second time under Direct
   to hardware, and picking one there keeps every other app off it.
@@ -245,9 +264,6 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Upgrade Spotify episode covers in fullscreen even when the queue contains an old thumbnail.
-- Show Spotify episode covers at their largest available size instead of enlarging thumbnails.
-- Omit empty Spotify episode entries instead of showing blank rows with a zero length.
 - On macOS, scrolling and clicks no longer lag behind in fullscreen and with lyrics open.
 - Horizontal card rows scroll all the way to the page edges, including album recommendations.
 - Removing an Apple Music song or album from the library takes its like off right away, the way Apple does.
@@ -2758,7 +2774,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Initial release: a native Spotify client with playback, an interactive queue, the saved library,
 search, album, playlist, artist and song pages, context menus and adaptive theming.
 
-[unreleased]: https://github.com/sonorahq/sonora/compare/v0.50.0...HEAD
+[unreleased]: https://github.com/sonorahq/sonora/compare/v0.50.1...HEAD
+[0.50.1]: https://github.com/sonorahq/sonora/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/sonorahq/sonora/compare/v0.49.1...v0.50.0
 [0.49.1]: https://github.com/sonorahq/sonora/compare/v0.49.0...v0.49.1
 [0.49.0]: https://github.com/sonorahq/sonora/compare/v0.48.1...v0.49.0
