@@ -82,6 +82,11 @@ These notes were previously in the upstream changelog:
 - Omit empty Spotify episode entries instead of showing blank rows with a zero length.
 - Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
 
+Every edit to an upstream file is a place a release import can conflict. Put episode logic in
+the fork's own files, `crates/music/src/spotify/episode.rs` and `identity.rs`, and keep edits
+to upstream files to a call, a guard or one line. Don't rename, reindent or restyle upstream
+code around them.
+
 ## Failed updates
 
 An open release PR is retried on the next sync while it remains the latest official release.

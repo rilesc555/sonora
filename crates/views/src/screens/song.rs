@@ -597,31 +597,30 @@ impl Render for SongView {
                     })
                     .when_some(track, |this, track| {
                         this.child(self.hero(&track, cx))
-                            .when(!track.is_episode(), |this| {
-                                this.child(
-                                    div()
-                                        .flex()
-                                        .flex_wrap()
-                                        .items_stretch()
-                                        .gap_5()
-                                        .child(
-                                            div()
-                                                .min_w(PANEL)
-                                                .flex_1()
-                                                .child(self.overview(&track, cx)),
-                                        )
-                                        .child(
-                                            div()
-                                                .min_w(PANEL)
-                                                .flex_1()
-                                                .flex()
-                                                .flex_col()
-                                                .gap_5()
-                                                .child(self.credits(&track, cx))
-                                                .child(self.discovery(&track, cx)),
-                                        ),
-                                )
-                            })
+                            .child(
+                                div()
+                                    .when(track.is_episode(), |this| this.hidden())
+                                    .flex()
+                                    .flex_wrap()
+                                    .items_stretch()
+                                    .gap_5()
+                                    .child(
+                                        div()
+                                            .min_w(PANEL)
+                                            .flex_1()
+                                            .child(self.overview(&track, cx)),
+                                    )
+                                    .child(
+                                        div()
+                                            .min_w(PANEL)
+                                            .flex_1()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_5()
+                                            .child(self.credits(&track, cx))
+                                            .child(self.discovery(&track, cx)),
+                                    ),
+                            )
                             .when_some(self.artist_profile(cx), |this, profile| {
                                 this.child(div().pt_5().child(profile))
                             })
