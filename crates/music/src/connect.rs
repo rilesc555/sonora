@@ -261,6 +261,10 @@ pub enum Event {
     Invite(Option<Invite>),
     /// Starting or joining a group session failed.
     JamFailed,
+    /// Spotify refused a guest's queue addition or did not confirm it in the shared queue.
+    JamQueueFailed {
+        unconfirmed: bool,
+    },
     /// Leaving or ending the group session failed. The session as it stands follows as a `Jam`.
     LeaveFailed,
 }
@@ -275,6 +279,8 @@ pub enum Request {
     /// A refused start returns as a command to play locally.
     Control(String, Command),
     Join(String),
+    /// Appends tracks to the joined Jam rather than to this device's queue.
+    JamEnqueue(Vec<String>),
     Peek(String),
     Start,
     Leave,

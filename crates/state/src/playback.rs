@@ -1303,10 +1303,9 @@ impl Playback {
         }
     }
 
-    /// Puts tracks into the queue at `placement` without a word, or starts playing them when
-    /// nothing is queued. While another device has playback they go to the end of its queue
-    /// instead. Returns where they went, for the toast, or `None` when they started playback or
-    /// went nowhere.
+    /// Places tracks locally, or appends them to the queue of a joined Jam or another device.
+    /// A guest Jam add reports its own pending status rather than returning a placement for
+    /// a success toast. With nothing queued locally, the tracks start playing instead.
     fn place(
         &mut self,
         tracks: Vec<Track>,
@@ -1317,6 +1316,13 @@ impl Playback {
         let playing = self.queue.read(cx).current().is_some();
         if tracks.is_empty() {
             return playing.then_some(placement);
+        }
+        if !self.local
+            && let Some(devices) = self.devices.as_ref().and_then(WeakEntity::upgrade)
+            && devices.read(cx).jam().is_some_and(|jam| !jam.owner)
+        {
+            devices.update(cx, |devices, cx| devices.enqueue_in_jam(&tracks, cx));
+            return None;
         }
         if let Some(sent) = self.queue_elsewhere(&tracks, cx) {
             let placed = match placement {

@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Add songs to the shared Spotify Jam queue when listening as a guest, so the next sync no longer drops them.
+
 ## [0.50.2] - 2026-11-18
 
 ### Added
