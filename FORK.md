@@ -80,6 +80,7 @@ These notes were previously in the upstream changelog:
 - Show Spotify episode covers at their largest available size, including in fullscreen when
   the queue contains an old thumbnail.
 - Omit empty Spotify episode entries instead of showing blank rows with a zero length.
+- Add songs to the shared Spotify Jam queue when listening as a guest.
 - Install the podcast fork on x64 Windows with the installer from its GitHub Releases.
 
 Every edit to an upstream file is a place a release import can conflict. Put episode logic in

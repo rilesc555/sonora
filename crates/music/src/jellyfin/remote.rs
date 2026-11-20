@@ -120,7 +120,7 @@ impl Worker {
             Request::Leave => {
                 self.out.send(Event::LeaveFailed).ok();
             }
-            Request::Rename(_) | Request::Kick(_) => {}
+            Request::Rename(_) | Request::Kick(_) | Request::JamEnqueue(_) => {}
         }
         Ok(())
     }

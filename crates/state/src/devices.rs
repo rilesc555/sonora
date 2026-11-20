@@ -401,6 +401,26 @@ impl Devices {
         }
     }
 
+    /// Routes a guest's additions to the Jam, even when playback is on this device.
+    pub(crate) fn enqueue_in_jam(&self, tracks: &[Track], cx: &mut App) {
+        let Some(link) = &self.link else {
+            Toasts::show(Outcome::Failed, "toast-queue-failed", cx);
+            return;
+        };
+        let ids = tracks
+            .iter()
+            .filter_map(|track| track.id.as_ref().filter(|id| !music::is_local_id(id)))
+            .cloned()
+            .collect::<Vec<_>>();
+        if ids.len() != tracks.len() {
+            Toasts::show(Outcome::Info, "toast-queue-local-elsewhere", cx);
+        }
+        if !ids.is_empty() {
+            link.send(Request::JamEnqueue(ids));
+            Toasts::show(Outcome::Info, "toast-jam-queue-pending", cx);
+        }
+    }
+
     /// Changes the device's volume and shows the requested level until its next report arrives.
     /// The caller notifies playback, since playback may already be updating when this runs.
     pub(crate) fn set_volume(&mut self, device: &str, level: f32, cx: &mut Context<Self>) {
@@ -654,6 +674,13 @@ impl Devices {
                 Event::JamFailed => {
                     self.awaiting_code = false;
                     Toasts::show(Outcome::Failed, "toast-jam-failed", cx);
+                }
+                Event::JamQueueFailed { unconfirmed } => {
+                    let key = match unconfirmed {
+                        true => "toast-jam-queue-unconfirmed",
+                        false => "toast-queue-failed",
+                    };
+                    Toasts::show(Outcome::Failed, key, cx);
                 }
             }
         }

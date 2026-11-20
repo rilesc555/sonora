@@ -68,6 +68,10 @@ const DERIVED_UID: usize = 20;
 /// How far this device may be from where a Jam says its song is before it is moved there. A
 /// seek is heard, and a transfer arrives for every change a listener makes.
 const JAM_SLACK: Duration = Duration::from_millis(1500);
+/// How long a sent guest addition waits to appear in a Jam playback transfer.
+const JAM_QUEUE_WAIT: Duration = Duration::from_secs(15);
+/// An occurrence marker that can survive a host assigning its own queue uid.
+const JAM_ADD_MARKER: &str = "sonora_queue_request";
 /// The most upcoming tracks a start carries over from the device that sent it.
 const CARRIED: usize = 80;
 /// The recent history window Spotify includes in its player state.
@@ -107,6 +111,7 @@ const JAM_JOIN: &str = "/social-connect/v2/sessions/join";
 const JAM_CURRENT: &str = "/social-connect/v2/sessions/current";
 const JAM_START: &str = "/social-connect/v2/sessions/current_or_new";
 const JAM_INFO: &str = "/social-connect/v2/sessions/info";
+const JAM_SESSIONS: &str = "/social-connect/v2/sessions";
 const JAM_END: &str = "/social-connect/v3/sessions";
 
 /// Starts one worker on the session runtime; it stays idle until device discovery is enabled.
@@ -211,6 +216,9 @@ struct Worker {
     /// Whether this device hosts a Jam that others listen to, and how many are in it.
     hosting: bool,
     members: usize,
+    /// The joined Jam's id, never the id of a Jam this account owns.
+    guest_jam: Option<String>,
+    jam_adds: Vec<JamAdd>,
     /// Until when the song playing is told as one Spotify picked rather than one queued by hand.
     /// An app that joins a Jam while a queued song plays cannot place it: it starts the next song
     /// of the collection, or the queued one from its top, and stays apart until the song ends.
@@ -247,6 +255,15 @@ struct Worker {
     backoff: Duration,
 }
 
+/// An addition accepted by the command service but not yet observed in the shared queue.
+struct JamAdd {
+    uid: String,
+    id: String,
+    /// Some hosts replace the uid. In that case the shared queue must contain a new copy.
+    copies: usize,
+    deadline: Instant,
+}
+
 impl Worker {
     fn new(session: Session, out: UnboundedSender<Event>) -> Self {
         let info = device_info(&session, &Naming::default());
@@ -271,6 +288,8 @@ impl Worker {
             learning,
             hosting: false,
             members: 0,
+            guest_jam: None,
+            jam_adds: Vec::new(),
             welcome: None,
             advance_at: None,
             advancing: None,
@@ -318,6 +337,11 @@ impl Worker {
                     }
                 }
                 () = acknowledge(self.advance_at) => self.advance(),
+                () = acknowledge(self.jam_adds.first().map(|add| add.deadline)) => {
+                    let now = Instant::now();
+                    self.jam_adds.retain(|add| add.deadline > now);
+                    self.out.send(Event::JamQueueFailed { unconfirmed: true }).ok();
+                }
                 () = acknowledge(self.rename_at) => {
                     self.rename_at = None;
                     if self.enabled && self.connected {
@@ -356,6 +380,7 @@ impl Worker {
             Input::Publish(now) => self.publish(now).await,
             Input::Transfer(to) => self.transfer(to).await,
             Input::Join(link) => self.join(&link).await,
+            Input::JamEnqueue(ids) => self.jam_enqueue(ids).await,
             Input::Peek(link) => self.peek(&link).await,
             Input::Start => self.start_jam().await,
             Input::Leave => self.leave().await,
@@ -392,7 +417,7 @@ impl Worker {
             Ok(Some(read)) => {
                 log::info!("connect: joined a jam");
                 // the update that follows has the members, and this has them too when it reads
-                self.tell_jam(Some(read.jam));
+                self.tell_jam(Some(read));
             }
             Ok(None) => {}
             Err(error) => {
@@ -403,13 +428,80 @@ impl Worker {
     }
 
     /// The group session the account is in now, if any.
-    async fn current_jam(session: &Session) -> Result<Option<Jam>, Error> {
-        let jam = Self::current_session(session).await?.map(|read| read.jam);
+    async fn current_jam(session: &Session) -> Result<Option<Read>, Error> {
+        let jam = Self::current_session(session).await?;
         match &jam {
-            Some(jam) => log::info!("connect: in a jam of {}", jam.members.len()),
+            Some(read) => log::info!("connect: in a jam of {}", read.jam.members.len()),
             None => log::info!("connect: not in a jam"),
         }
         Ok(jam)
+    }
+
+    /// Sends guest additions to the Jam's command service. A successful request is not proof
+    /// that the host queued the song; wait for its occurrence in a playback transfer.
+    async fn jam_enqueue(&mut self, ids: Vec<String>) {
+        let Some(jam) = self
+            .guest_jam
+            .as_deref()
+            .filter(|_| self.enabled && self.connected)
+        else {
+            self.out
+                .send(Event::JamQueueFailed { unconfirmed: false })
+                .ok();
+            return;
+        };
+        let device = self.session.device_id();
+        let endpoint = format!("{JAM_SESSIONS}/{jam}/commands/from/{device}");
+        for id in ids {
+            let uid = format!("sonora-{:016x}", fastrand::u64(..));
+            let present = self.now.as_ref().map_or(0, |now| {
+                now.track
+                    .iter()
+                    .chain(&now.upcoming)
+                    .filter(|track| track.queued && track.id == id)
+                    .count()
+            });
+            let sent = self
+                .jam_adds
+                .iter()
+                .filter(|add| add.id == id)
+                .map(|add| add.copies)
+                .max()
+                .unwrap_or(0);
+            match jam_add(&self.session, &endpoint, &id, &uid).await {
+                Ok(()) => self.jam_adds.push(JamAdd {
+                    uid,
+                    id,
+                    copies: present.max(sent) + 1,
+                    deadline: Instant::now() + JAM_QUEUE_WAIT,
+                }),
+                Err(error) => {
+                    log::warn!("connect: cannot add to the jam queue: {error}");
+                    self.out
+                        .send(Event::JamQueueFailed { unconfirmed: false })
+                        .ok();
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Confirms a guest addition from the shared queue, even if the host renumbered the entry.
+    fn confirm_jam_adds(&mut self, state: &TransferState) {
+        self.jam_adds.retain(|add| {
+            let mut copies = 0;
+            for track in &state.queue.tracks {
+                if track.uid.as_ref() == Some(&add.uid)
+                    || track.metadata.get(JAM_ADD_MARKER) == Some(&add.uid)
+                {
+                    return false;
+                }
+                if listed_id(track).as_ref() == Some(&add.id) {
+                    copies += 1;
+                }
+            }
+            copies < add.copies
+        });
     }
 
     /// The group session the account is in. Spotify answers 404 when there is none, which is
@@ -467,7 +559,7 @@ impl Worker {
         match jam_read(&self.session, &Method::GET, &endpoint).await {
             Ok(Some(read)) => {
                 log::info!("connect: started a jam, link {}", read.jam.link.is_some());
-                self.tell_jam(Some(read.jam));
+                self.tell_jam(Some(read));
             }
             Ok(None) => {
                 log::warn!("connect: the jam that started cannot be read");
@@ -548,7 +640,7 @@ impl Worker {
             Ok(_) => {
                 log::info!("connect: removed a member from the jam");
                 if let Ok(Some(read)) = Self::current_session(&self.session).await {
-                    self.tell_jam(Some(read.jam));
+                    self.tell_jam(Some(read));
                 }
             }
             Err(error) => log::warn!("connect: cannot remove the member: {error}"),
@@ -572,7 +664,8 @@ impl Worker {
         let jam = json
             .get("session")
             .and_then(|session| social_json(session.clone()))
-            .map(|session| read_social(session, &self.session.username()).jam);
+            .filter(|session| !session.session_id.is_empty())
+            .map(|session| read_social(session, &self.session.username()));
         match (ended, jam) {
             (true, _) => self.tell_jam(None),
             // an update with no session says nothing about who is in it
@@ -583,7 +676,15 @@ impl Worker {
 
     /// Reports the Jam this device is in, and notes whether it hosts one that others listen to.
     /// Once it no longer does, a pause it kept to itself is told like any other.
-    fn tell_jam(&mut self, jam: Option<Jam>) {
+    fn tell_jam(&mut self, read: Option<Read>) {
+        let guest = read
+            .as_ref()
+            .filter(|read| !read.jam.owner && is_path_id(&read.id, "_-"));
+        if self.guest_jam.as_deref() != guest.map(|read| read.id.as_str()) {
+            self.jam_adds.clear();
+            self.guest_jam = guest.map(|read| read.id.clone());
+        }
+        let jam = read.map(|read| read.jam);
         let members = jam.as_ref().map_or(0, |jam| jam.members.len());
         let joined = std::mem::replace(&mut self.members, members) < members;
         self.hosting = jam.as_ref().is_some_and(|jam| jam.owner && members > 1);
@@ -1180,9 +1281,7 @@ impl Worker {
 
     /// Uses a matching fresh player report to preserve queue order that transfer contexts can omit.
     fn transferred(&self, state: TransferState) -> Start {
-        let now =
-            (unix_millis() as i64).saturating_add(self.session.time_delta().saturating_mul(1000));
-        let start = started_by_transfer(state, now);
+        let start = started_by_transfer(state, self.server_time());
         if let Some((queue, stamp)) = &self.remote_queue {
             let matching_context = start
                 .state
@@ -1202,6 +1301,11 @@ impl Worker {
             }
         }
         start
+    }
+
+    /// Spotify's clock in Unix milliseconds, for the timestamp in a transfer.
+    fn server_time(&self) -> i64 {
+        (unix_millis() as i64).saturating_add(self.session.time_delta().saturating_mul(1000))
     }
 
     fn roster(&mut self, cluster: &Cluster) -> Roster {
@@ -1318,7 +1422,11 @@ impl Worker {
     /// know.
     fn translate(&mut self, command: Wire) -> Option<Vec<Command>> {
         Some(match command {
-            Wire::Transfer(transfer) => vec![Command::Start(self.transferred(transfer.data?))],
+            Wire::Transfer(transfer) => {
+                let state = transfer.data?;
+                self.confirm_jam_adds(&state);
+                vec![Command::Start(self.transferred(state))]
+            }
             Wire::Play(play) => vec![Command::Start(started_by_play(&play))],
             Wire::Pause(_) => vec![Command::Pause],
             Wire::Resume(_) => vec![Command::Play],
@@ -1380,7 +1488,15 @@ impl Worker {
             Wire::Unknown(value) => {
                 if let Some(state) = jam_transfer(&value) {
                     log::debug!("connect: a jam brings this device back in step");
-                    return Some(self.in_step(self.transferred(state)));
+                    self.confirm_jam_adds(&state);
+                    // A position-only guest update is not an empty queue. A transfer that
+                    // includes the queue can replace it, even when it has no queued songs.
+                    let sync_queue = self.guest_jam.is_none() || state.queue.is_some();
+                    let start = match self.guest_jam.is_some() {
+                        true => started_by_transfer(state, self.server_time()),
+                        false => self.transferred(state),
+                    };
+                    return Some(self.in_step(start, sync_queue));
                 }
                 // the field names only, since a transfer carries the listener's whole state
                 let fields = value
@@ -1396,7 +1512,7 @@ impl Worker {
     /// which would be heard: repeat is taken, the queue after the song, and its place when that
     /// is audibly off. Another shuffle reorders the whole queue, more of it than a report
     /// shows, so that is started over like another song.
-    fn in_step(&mut self, start: Start) -> Vec<Command> {
+    fn in_step(&mut self, start: Start, sync_queue: bool) -> Vec<Command> {
         let wanted = &start.state;
         let Some(now) = self.now.as_ref().filter(|now| {
             now.track.as_ref().map(|track| &track.id)
@@ -1412,27 +1528,32 @@ impl Worker {
         if let Some(repeat) = wanted.repeat.filter(|repeat| now.repeat != Some(*repeat)) {
             commands.push(Command::Repeat(repeat));
         }
-        let mut upcoming = wanted.upcoming.clone();
-        if shared(now).is_none() {
-            keep_kinds(&mut upcoming, &now.upcoming);
-        }
-        let listed = |tracks: &[QueuedTrack]| -> Vec<(String, bool)> {
-            tracks
-                .iter()
-                .map(|track| (track.id.clone(), track.queued))
-                .collect()
-        };
-        if listed(&upcoming) != listed(&now.upcoming) {
-            commands.push(Command::SetQueue {
-                upcoming: upcoming.clone(),
-            });
+        let position = now.live_position();
+        if sync_queue {
+            // A transfer's queue and context are separate. Keep the queued copy even
+            // if the same song was already in the context.
+            let mut upcoming = wanted.upcoming.clone();
+            if self.guest_jam.is_none() && shared(now).is_none() {
+                keep_kinds(&mut upcoming, &now.upcoming);
+            }
+            let listed = |tracks: &[QueuedTrack]| -> Vec<(String, bool)> {
+                tracks
+                    .iter()
+                    .map(|track| (track.id.clone(), track.queued))
+                    .collect()
+            };
+            if listed(&upcoming) != listed(&now.upcoming) {
+                commands.push(Command::SetQueue {
+                    upcoming: upcoming.clone(),
+                });
+            }
+            if let Some(now) = self.now.as_mut() {
+                Arc::make_mut(now).upcoming = upcoming;
+            }
         }
         let at = wanted.live_position();
-        if at.abs_diff(now.live_position()) > JAM_SLACK {
+        if at.abs_diff(position) > JAM_SLACK {
             commands.push(Command::Seek(at));
-        }
-        if let Some(now) = self.now.as_mut() {
-            Arc::make_mut(now).upcoming = upcoming;
         }
         commands
     }
@@ -1508,6 +1629,41 @@ async fn control(session: Session, device: &str, command: Command) -> bool {
             log::warn!("connect: cannot send {what} to {device}: {error}");
             false
         }
+    }
+}
+
+/// Submits one add to the shared queue and checks the command status, not just the HTTP status.
+async fn jam_add(session: &Session, endpoint: &str, id: &str, uid: &str) -> Result<(), Error> {
+    let body = serde_json::json!({
+        "command": {
+            "endpoint": "add_to_queue",
+            "track": {
+                "uri": super::identity::to_uri(id),
+                "uid": uid,
+                "provider": "queue",
+                "metadata": { "is_queued": "true", (JAM_ADD_MARKER): uid },
+            },
+        },
+    });
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+    let body = body.to_string();
+    let response = session
+        .spclient()
+        .request(
+            &Method::POST,
+            endpoint,
+            Some(headers),
+            Some(body.as_bytes()),
+        )
+        .await?;
+    let response: serde_json::Value =
+        serde_json::from_slice(&response).map_err(Error::data_loss)?;
+    match response.get("status").and_then(serde_json::Value::as_str) {
+        Some("RECOVERED" | "SUCCESS") => Ok(()),
+        _ => Err(Error::failed_precondition(
+            "the jam rejected the queue addition",
+        )),
     }
 }
 
@@ -2076,9 +2232,14 @@ fn listed_track(track: &ProvidedTrack) -> Option<QueuedTrack> {
 
 /// Who queued a track, read from the first of the metadata keys Spotify names them by.
 fn adder(track: &ProvidedTrack) -> Option<String> {
+    queue_adder(&track.metadata)
+}
+
+/// Finds who queued an entry in either a player report or a transfer.
+fn queue_adder(metadata: &std::collections::HashMap<String, String>) -> Option<String> {
     ADDERS
         .iter()
-        .find_map(|key| track.metadata.get(*key))
+        .find_map(|key| metadata.get(*key))
         .filter(|name| !name.is_empty())
         .cloned()
 }
@@ -2146,6 +2307,14 @@ fn occurrences(ids: impl IntoIterator<Item = String>, queued: bool) -> Vec<Queue
         .collect()
 }
 
+/// Keeps the identity and attribution Spotify attaches to a transferred queue entry.
+fn transferred_track(track: &ContextTrack, queued: bool) -> Option<QueuedTrack> {
+    let mut entry = QueuedTrack::new(listed_id(track)?, queued);
+    entry.uid = track.uid.clone().unwrap_or_default();
+    entry.added_by = queue_adder(&track.metadata);
+    Some(entry)
+}
+
 /// Where a transfer from another device leaves off: its track, how far in, and what follows.
 fn started_by_transfer(state: TransferState, now: i64) -> Start {
     let playback = &state.playback;
@@ -2167,7 +2336,7 @@ fn started_by_transfer(state: TransferState, now: i64) -> Start {
     let context_tracks: Vec<_> = context.pages.iter().flat_map(|page| &page.tracks).collect();
     let anchor = match from_queue {
         true => playback.current_track.as_ref().and_then(listed_id),
-        false => track.clone(),
+        false => track,
     };
     let place = context_tracks
         .iter()
@@ -2192,13 +2361,12 @@ fn started_by_transfer(state: TransferState, now: i64) -> Start {
             .collect();
     }
     previous.drain(..previous.len().saturating_sub(PREVIOUS));
-    let queued: Vec<_> = state
+    let queued = state
         .queue
         .tracks
         .iter()
         .skip(from_queue as usize)
-        .filter_map(listed_id)
-        .collect();
+        .filter_map(|track| transferred_track(track, true));
     let following = context_tracks
         .iter()
         .skip(place.map(|place| place + 1).unwrap_or(0))
@@ -2210,15 +2378,14 @@ fn started_by_transfer(state: TransferState, now: i64) -> Start {
     Start {
         state: Arc::new(Snapshot {
             context: context.uri.as_deref().and_then(collection),
-            upcoming: occurrences(queued, true)
-                .into_iter()
+            upcoming: queued
                 .chain(occurrences(following, false))
                 .take(CARRIED)
                 .collect(),
             previous: occurrences(previous, false),
             shuffle: state.options.shuffling_context,
             repeat,
-            track: track.map(|id| QueuedTrack::new(id, from_queue)),
+            track: current.and_then(|track| transferred_track(track, from_queue)),
             index: place,
             position: Duration::from_millis(position),
             playing: !paused,
