@@ -7,6 +7,30 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.50.2] - 2026-11-18
+
+### Added
+
+- Click the tray icon on Linux to show Sonora's window, or to hide it into the tray when it is open.
+- Choose Wide under Settings, Appearance, Page width to let pages fill a large window again instead of staying centred.
+- Sonora downloads new versions in the background and installs them the next time it starts, on Windows, macOS and the AppImage. Turn this off under Settings, About, Install updates automatically.
+- Go back and forward with the side buttons of your mouse or a touchpad swipe on Windows.
+
+### Fixed
+
+- Music keeps playing smoothly on Windows while another program keeps the processor busy, without raising Sonora's priority in Task Manager.
+- The fullscreen player counts down the time left when Show time left is on, as the player bar does.
+- Clicking a song or other suggestion under the search page field opens it again instead of just closing the list.
+- Your own YouTube Music playlists keep your name as their creator on the playlist page, as they do in your library.
+- Skipping songs in a Spotify album or playlist with Soloist plays the next song again, instead of a different one or a greyed-out next button.
+- Play Next and Play Last work again with Soloist.
+- Radio carries on with similar songs again after an album or playlist ends with Soloist.
+- Picking a Deezer Family profile at sign-in switches to it instead of failing and staying on the account owner.
+- Blur window stays available on Linux at 100% opacity, so a compositor that makes Sonora see-through, such as when it is unfocused, blurs the desktop behind it.
+- Soloist plays again after Sonora crashed, instead of the leftover Soloist blocking every song.
+- Repeat All goes back to the first song again with Soloist, instead of carrying on into other songs.
+- The Turkish, Korean and Indonesian translations are complete again, so no screen falls back to English.
+
 ## [0.50.1] - 2026-11-17
 
 ### Added
@@ -2774,7 +2798,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Initial release: a native Spotify client with playback, an interactive queue, the saved library,
 search, album, playlist, artist and song pages, context menus and adaptive theming.
 
-[unreleased]: https://github.com/sonorahq/sonora/compare/v0.50.1...HEAD
+[unreleased]: https://github.com/sonorahq/sonora/compare/v0.50.2...HEAD
+[0.50.2]: https://github.com/sonorahq/sonora/compare/v0.50.1...v0.50.2
 [0.50.1]: https://github.com/sonorahq/sonora/compare/v0.50.0...v0.50.1
 [0.50.0]: https://github.com/sonorahq/sonora/compare/v0.49.1...v0.50.0
 [0.49.1]: https://github.com/sonorahq/sonora/compare/v0.49.0...v0.49.1
